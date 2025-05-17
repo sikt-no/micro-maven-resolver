@@ -1,0 +1,9 @@
+.idea/
+target/
+.metals
+.bloop
+out
+metals.sbt
+.bsp/
+.scala-build/
+*.build_artifacts.txt
