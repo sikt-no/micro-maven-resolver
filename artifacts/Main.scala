@@ -39,22 +39,23 @@ object VersionFormat {
 
 private object Options {
   val usernameOpt =
-    Opts.env[String]("ARTIFACTORY_USERNAME", help = "username for resolving from artifactory")
+    Opts.env[String]("MAVEN_USERNAME", help = "username for maven repository").orNone
   val passwordOpt =
-    Opts.env[String]("ARTIFACTORY_PASSWORD", help = "password for resolving from artifactory")
+    Opts.env[String]("MAVEN_PASSWORD", help = "password for maven repository.").orNone
 
   val repositoryNameOpt =
     Opts
-      .env[String]("ARTIFACTORY_REPOSITORY", help = "Lookup in which repository")
-      .withDefault("libs-releases")
-      .map(repo => s"https://artifactory.sikt.no/artifactory/${repo}/")
+      .env[String]("MAVEN_REPOSITORY", help = "Lookup in which repository")
+      .withDefault("https://repo1.maven.org/maven2")
 
   val repositoryOpt =
-    (usernameOpt, passwordOpt, repositoryNameOpt).mapN((username, password, repo) =>
+    (usernameOpt, passwordOpt, repositoryNameOpt).mapN { (username, password, repo) =>
+      val pwd = (username, password).mapN((u, p) =>
+        new AuthenticationBuilder().addUsername(u).addPassword(p).build())
       new RemoteRepository.Builder("artifactory", "default", repo)
-        .setAuthentication(
-          new AuthenticationBuilder().addUsername(username).addPassword(password).build())
-        .build())
+        .setAuthentication(pwd.orNull)
+        .build()
+    }
 
   given Argument[Maven.Module] = new Argument[Maven.Module] {
     override def read(string: String): ValidatedNel[String, Maven.Module] =
@@ -86,28 +87,33 @@ private object Options {
     "coordinates",
     "Coordinates for maven format is <groupId>:<artifactId>[:<extension>[:<classifier>]]:<version>")
 
-  val versionsOpts =
-    (repositoryOpt, moduleOpt).mapN((repo, module) => Maven.versions(repo, module))
-
-  def download(
-      repository: RemoteRepository,
-      coordinates: Maven.Coordinates
-  ): IO[Option[Maven.ResolvedArtifact]] =
-    Maven.resolve(repository, coordinates)
-
-  val downloadOpt = (repositoryOpt, coordinatesOpt).mapN(download)
+  val versionsOpts: Opts[IO[Option[Maven.Versions]]] =
+    (repositoryOpt, moduleOpt).mapN(Maven.versions)
+  val resolveOpt: Opts[IO[Option[Maven.ResolvedArtifact]]] =
+    (repositoryOpt, coordinatesOpt).mapN(Maven.resolve)
+  val deployOpt: Opts[IO[Unit]] =
+    (
+      repositoryOpt,
+      // todo: do we really need to do this?
+      coordinatesOpt.mapValidated(c =>
+        if (c.classifier.isDefined) c.validNel
+        else "There needs to be a classifier set".invalidNel),
+      Opts.argument[java.nio.file.Path]("file").map(Path.fromNioPath))
+      .mapN(
+        Maven.deploy
+      )
 }
 
 object Main
     extends CommandIOApp(
-      "studieadm-maven-resolver",
-      "Studieadministrajonens Maven Resolver",
+      "maven-resolver",
+      "Maven Resolver and publisher",
       version = cli.build.BuildInfo.projectVersion.getOrElse("main")) {
 
   def runVersions(
       versions: IO[Option[Maven.Versions]],
       format: VersionFormat,
-      maxVersions: Int): IO[ExitCode] =
+      maxVersions: Int): IO[Unit] =
     versions
       .flatMap(x => IO.fromOption(x)(new RuntimeException("Unable to resolve versions")))
       .flatMap { our =>
@@ -141,12 +147,8 @@ object Main
             }
           case VersionFormat.Latest =>
             IO.fromOption(our.latest)(new RuntimeException("No latest version defined"))
-              .flatMap(v => IO.println(v.toString))
+              .flatMap(v => IO.println(v))
         }
-      }
-      .as(ExitCode.Success)
-      .recoverWith { case NonFatal(e) =>
-        IO.consoleForIO.errorln(s"Error occured: ${e.getMessage}").as(ExitCode(1))
       }
 
   def unArchive(archive: Path, writeTo: Path)(implicit files: Files[IO]): IO[Unit] =
@@ -159,21 +161,21 @@ object Main
       .compile
       .drain
 
-  def runDownload(
-      action: IO[Option[Maven.ResolvedArtifact]],
-      extractTo: Option[Path]): IO[ExitCode] =
+  def runDownload(action: IO[Option[Maven.ResolvedArtifact]], extractTo: Option[Path]): IO[Unit] =
     action
       .flatMap { maybeResolved =>
         for {
           resolved <- IO.fromOption(maybeResolved)(
             new RuntimeException("Unable to download dependency"))
           _ <- IO.println(s"Downloaded to ${resolved.path}")
-          _ <- extractTo.traverse_(unArchive(Path.fromNioPath(resolved.path), _))
-        } yield ExitCode.Success
+          _ <- extractTo.traverse_(unArchive(resolved.path, _))
+        } yield ()
       }
-      .recoverWith { case NonFatal(e) =>
-        IO.consoleForIO.errorln(s"Error occured: ${e.getMessage}").as(ExitCode(1))
-      }
+
+  private def runIO(op: IO[Unit]) =
+    op.as(ExitCode.Success).recoverWith { case NonFatal(e) =>
+      IO.consoleForIO.errorln(s"Error occured: ${e.getMessage}").as(ExitCode(1))
+    }
 
   override def main: Opts[IO[ExitCode]] =
     Opts.subcommands(
@@ -182,14 +184,15 @@ object Main
           Options.versionsOpts,
           Opts.option[VersionFormat]("format", "Format").withDefault(VersionFormat.Table),
           Opts.option[Int]("max", "Maximum versions to include").withDefault(10)
-        ).mapN(
-          runVersions
-        )
+        ).mapN(runVersions).map(runIO)
       ),
-      Command("download", "Download the dependency")(
+      Command("resolve", "Resolve the artifact")(
         (
-          Options.downloadOpt,
+          Options.resolveOpt,
           Opts.option[java.nio.file.Path]("extract-to", "Extract to").map(Path.fromNioPath).orNone
-        ).mapN(runDownload))
+        ).mapN(runDownload).map(runIO)),
+      Command("deploy", "Deploy the artifact")(
+        Options.deployOpt.map(runIO)
+      )
     )
 }

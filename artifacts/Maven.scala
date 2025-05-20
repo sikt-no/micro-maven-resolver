@@ -12,9 +12,13 @@ import org.eclipse.aether.resolution.{ArtifactRequest, MetadataRequest}
 import org.eclipse.aether.supplier.RepositorySystemSupplier
 
 import java.io.File
-import java.nio.file.Path
+import fs2.io.file.{Files, Path}
+import org.eclipse.aether.deployment.DeployRequest
+import org.eclipse.aether.util.artifact.SubArtifact
+
 import scala.jdk.CollectionConverters.*
 import scala.util.Properties
+import scala.xml.XML
 
 object Maven {
   opaque type GroupId <: String = String
@@ -154,5 +158,44 @@ object Maven {
         system.resolveArtifact(session, request)
       }
     } yield Option.when(response.isResolved)(
-      ResolvedArtifact(coordinates, response.getArtifact.getFile.toPath))
+      ResolvedArtifact(coordinates, Path.fromNioPath(response.getArtifact.getFile.toPath)))
+
+  def deploy(
+      repository: RemoteRepository,
+      coordinates: Coordinates,
+      path: Path
+  ): IO[Unit] = {
+    def run(tempDir: Path) = for {
+      system <- system.get
+      session <- newSession(system)
+      pom <- generatePom(coordinates, tempDir)
+      response <- IO.blocking {
+        val request = new DeployRequest()
+        request.setRepository(repository)
+        val artifact = coordinates.toArtifact
+        artifact.setFile(path.toNioPath.toFile)
+        val pomArtifact = new SubArtifact(artifact, null, "pom", pom.toNioPath.toFile)
+        request.setArtifacts(java.util.List.of(artifact, pomArtifact))
+      }
+    } yield ()
+
+    Files[IO].tempDirectory.use(run)
+  }
+
+  private def generatePom(coordinates: Maven.Coordinates, tempDir: Path) = IO.blocking {
+    val xml =
+      <project xmlns="http://maven.apache.org/POM/4.0.0"
+               xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+               xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+        <modelVersion>4.0.0</modelVersion>
+
+        <groupId>{coordinates.module.groupId}</groupId>
+        <artifactId>{coordinates.module.artifactId}</artifactId>
+        <version>{coordinates.version}</version>
+        <packaging>pom</packaging>
+      </project>
+    val path = tempDir / "pom.xml"
+    XML.save(path.toString, xml, xmlDecl = true)
+    path
+  }
 }

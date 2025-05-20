@@ -8,6 +8,7 @@
 //> using dep "org.apache.maven:maven-resolver-provider:3.9.9"
 //> using dep "org.apache.maven.resolver:maven-resolver-supplier:1.9.23"
 // same version as maven
-//> using dep "org.codehaus.plexus:plexus-xml:3.0.2"
+//> using dep "org.codehaus.plexus:plexus-xml:4.1.0"
 //> using dep "org.slf4j:slf4j-simple:2.0.17"
 //> using dep "io.circe::circe-core:0.14.13"
+//> using dep "org.scala-lang.modules::scala-xml:2.3.0"
