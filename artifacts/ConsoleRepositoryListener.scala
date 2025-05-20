@@ -1,3 +1,5 @@
+package artifacts
+
 import org.eclipse.aether.{AbstractRepositoryListener, RepositoryEvent}
 import org.slf4j.Logger
 
@@ -21,7 +23,8 @@ object ConsoleRepositoryListener extends AbstractRepositoryListener {
     Console.err.println("Downloaded artifact " + event.getArtifact + " from " + event.getRepository)
 
   override def artifactDownloading(event: RepositoryEvent) =
-    Console.err.println("Downloading artifact " + event.getArtifact + " from " + event.getRepository)
+    Console.err.println(
+      "Downloading artifact " + event.getArtifact + " from " + event.getRepository)
 
   override def artifactInstalled(event: RepositoryEvent) =
     Console.err.println("Installed " + event.getArtifact + " to " + event.getFile)
@@ -45,7 +48,8 @@ object ConsoleRepositoryListener extends AbstractRepositoryListener {
     Console.err.println("Downloaded metadata " + event.getMetadata + " from " + event.getRepository)
 
   override def metadataDownloading(event: RepositoryEvent) =
-    Console.err.println("Downloading metadata " + event.getMetadata + " from " + event.getRepository)
+    Console.err.println(
+      "Downloading metadata " + event.getMetadata + " from " + event.getRepository)
 
   override def metadataInstalled(event: RepositoryEvent) =
     Console.err.println("Installed " + event.getMetadata + " to " + event.getFile)

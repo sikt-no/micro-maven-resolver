@@ -1,4 +1,7 @@
+package artifacts
+
 import cats.effect.*
+import io.circe.Codec
 import org.apache.maven.artifact.repository.metadata.io.xpp3.MetadataXpp3Reader
 import org.eclipse.aether.*
 import org.eclipse.aether.artifact.DefaultArtifact
@@ -7,12 +10,11 @@ import org.eclipse.aether.metadata.Metadata.Nature
 import org.eclipse.aether.repository.{LocalRepository, RemoteRepository}
 import org.eclipse.aether.resolution.{ArtifactRequest, MetadataRequest}
 import org.eclipse.aether.supplier.RepositorySystemSupplier
-import io.circe.Codec
 
-import java.nio.file.Path
 import java.io.File
-import scala.util.Properties
+import java.nio.file.Path
 import scala.jdk.CollectionConverters.*
+import scala.util.Properties
 
 object Maven {
   opaque type GroupId <: String = String
