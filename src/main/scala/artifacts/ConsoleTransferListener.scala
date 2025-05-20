@@ -1,9 +1,8 @@
-package artifacts
-
-import java.util.concurrent.ConcurrentHashMap
 import org.eclipse.aether.transfer.{AbstractTransferListener, TransferEvent, TransferResource}
+
 import java.text.{DecimalFormat, DecimalFormatSymbols}
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 
 object ConsoleTransferListener extends AbstractTransferListener {
   private val downloads = new ConcurrentHashMap[TransferResource, Long]()
@@ -22,7 +21,7 @@ object ConsoleTransferListener extends AbstractTransferListener {
 
     val buffer = new StringBuilder(64)
 
-    import scala.collection.JavaConverters._
+    import scala.collection.JavaConverters.*
     for (entry <- downloads.entrySet().asScala) {
       val total    = entry.getKey.getContentLength
       val complete = entry.getValue

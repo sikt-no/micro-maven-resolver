@@ -1,21 +1,19 @@
-package artifacts
-
 import cats.effect.*
+import fs2.io.file.{Files, Path}
 import io.circe.Codec
 import org.apache.maven.artifact.repository.metadata.io.xpp3.MetadataXpp3Reader
 import org.eclipse.aether.*
 import org.eclipse.aether.artifact.DefaultArtifact
+import org.eclipse.aether.deployment.DeployRequest
 import org.eclipse.aether.metadata.DefaultMetadata
 import org.eclipse.aether.metadata.Metadata.Nature
 import org.eclipse.aether.repository.{LocalRepository, RemoteRepository}
 import org.eclipse.aether.resolution.{ArtifactRequest, MetadataRequest}
 import org.eclipse.aether.supplier.RepositorySystemSupplier
+import org.eclipse.aether.util.artifact.SubArtifact
+import org.eclipse.aether.util.repository.AuthenticationBuilder
 
 import java.io.File
-import fs2.io.file.{Files, Path}
-import org.eclipse.aether.deployment.DeployRequest
-import org.eclipse.aether.util.artifact.SubArtifact
-
 import scala.jdk.CollectionConverters.*
 import scala.util.Properties
 import scala.xml.XML
@@ -98,6 +96,14 @@ object Maven {
       versions: List[Maven.Version])
       derives Codec
 
+  def repositoryFor(url: String, up: Option[(username: String, password: String)]) = {
+    val pwd = up.map(t =>
+      new AuthenticationBuilder().addUsername(t.username).addPassword(t.password).build())
+    new RemoteRepository.Builder("maven", "default", url)
+      .setAuthentication(pwd.orNull)
+      .build()
+  }
+
   val system: Ref[IO, RepositorySystem] = Ref.unsafe {
     val systemsupplier = new RepositorySystemSupplier()
     systemsupplier.get()
@@ -139,7 +145,7 @@ object Maven {
           .map(v =>
             Versions(
               module,
-              Some(Version(v.getLatest)),
+              Option(v.getLatest).orElse(Option(v.getRelease)).map(Version.apply),
               v.getVersions.asScala.map(Version.apply).toList.reverse))
       }
     } yield parsed
@@ -172,10 +178,10 @@ object Maven {
       response <- IO.blocking {
         val request = new DeployRequest()
         request.setRepository(repository)
-        val artifact = coordinates.toArtifact
-        artifact.setFile(path.toNioPath.toFile)
+        val artifact = coordinates.toArtifact.setFile(path.toNioPath.toFile)
         val pomArtifact = new SubArtifact(artifact, null, "pom", pom.toNioPath.toFile)
         request.setArtifacts(java.util.List.of(artifact, pomArtifact))
+        system.deploy(session, request)
       }
     } yield ()
 

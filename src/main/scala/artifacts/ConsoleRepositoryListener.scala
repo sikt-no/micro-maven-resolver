@@ -1,5 +1,3 @@
-package artifacts
-
 import org.eclipse.aether.{AbstractRepositoryListener, RepositoryEvent}
 import org.slf4j.Logger
 

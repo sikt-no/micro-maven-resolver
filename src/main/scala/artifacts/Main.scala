@@ -1,5 +1,3 @@
-package artifacts
-
 import Maven.Coordinates
 import cats.data.ValidatedNel
 import cats.effect.*
@@ -43,19 +41,17 @@ private object Options {
   val passwordOpt =
     Opts.env[String]("MAVEN_PASSWORD", help = "password for maven repository.").orNone
 
+  val usernamePasswordOpt: Opts[Option[(username: String, password: String)]] =
+    (usernameOpt, passwordOpt).mapN((a, b) => (a, b).tupled)
+
   val repositoryNameOpt =
     Opts
       .env[String]("MAVEN_REPOSITORY", help = "Lookup in which repository")
       .withDefault("https://repo1.maven.org/maven2")
 
   val repositoryOpt =
-    (usernameOpt, passwordOpt, repositoryNameOpt).mapN { (username, password, repo) =>
-      val pwd = (username, password).mapN((u, p) =>
-        new AuthenticationBuilder().addUsername(u).addPassword(p).build())
-      new RemoteRepository.Builder("artifactory", "default", repo)
-        .setAuthentication(pwd.orNull)
-        .build()
-    }
+    (repositoryNameOpt, usernamePasswordOpt)
+      .mapN(Maven.repositoryFor)
 
   given Argument[Maven.Module] = new Argument[Maven.Module] {
     override def read(string: String): ValidatedNel[String, Maven.Module] =
