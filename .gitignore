@@ -7,3 +7,4 @@ metals.sbt
 .bsp/
 .scala-build/
 *.build_artifacts.txt
+.env.local

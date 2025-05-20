@@ -1,0 +1,156 @@
+import cats.effect.*
+import org.apache.maven.artifact.repository.metadata.io.xpp3.MetadataXpp3Reader
+import org.eclipse.aether.*
+import org.eclipse.aether.artifact.DefaultArtifact
+import org.eclipse.aether.metadata.DefaultMetadata
+import org.eclipse.aether.metadata.Metadata.Nature
+import org.eclipse.aether.repository.{LocalRepository, RemoteRepository}
+import org.eclipse.aether.resolution.{ArtifactRequest, MetadataRequest}
+import org.eclipse.aether.supplier.RepositorySystemSupplier
+import io.circe.Codec
+
+import java.nio.file.Path
+import java.io.File
+import scala.util.Properties
+import scala.jdk.CollectionConverters.*
+
+object Maven {
+  opaque type GroupId <: String = String
+  object GroupId {
+    def apply(in: String): GroupId = in
+    given Codec[GroupId] = Codec.implied[String]
+  }
+
+  opaque type ArtifactId <: String = String
+  object ArtifactId {
+    def apply(in: String): ArtifactId = in
+    given Codec[ArtifactId] = Codec.implied[String]
+  }
+
+  opaque type Version <: String = String
+  object Version {
+    def apply(in: String): Version = in
+    given Codec[Version] = Codec.implied[String]
+  }
+
+  opaque type Classifier <: String = String
+  object Classifier {
+    def apply(in: String): Classifier = in
+    given Codec[Classifier] = Codec.implied[String]
+  }
+
+  case class Module(groupId: GroupId, artifactId: ArtifactId) derives Codec
+
+  object Module {
+    private val Pattern = "([^: ]+):([^: ]+)".r
+
+    def parse(value: String): Option[Module] =
+      value match {
+        case Pattern(g, a) => Some(Module(GroupId(g), ArtifactId(a)))
+        case _ => None
+      }
+  }
+
+  case class Coordinates(
+      module: Module,
+      version: Version,
+      classifier: Option[Classifier],
+      extension: Option[String]) {
+    def toArtifact: DefaultArtifact =
+      new DefaultArtifact(
+        module.groupId,
+        module.artifactId,
+        classifier.orNull,
+        extension.getOrElse("jar"),
+        version)
+  }
+
+  object Coordinates {
+    private val pattern = "([^: ]+):([^: ]+)(:([^: ]*)(:([^: ]+))?)?:([^: ]+)".r.pattern
+
+    def parse(value: String): Option[Coordinates] = {
+      val matcher = pattern.matcher(value)
+      Option.when(matcher.matches()) {
+        Coordinates(
+          Module(
+            GroupId(matcher.group(1)),
+            ArtifactId(matcher.group(2))
+          ),
+          Version(matcher.group(7)),
+          classifier = Option(matcher.group(6)).map(Classifier.apply),
+          extension = Option(matcher.group(4))
+        )
+      }
+    }
+  }
+
+  case class ResolvedArtifact(coordinates: Coordinates, path: Path)
+
+  case class Versions(
+      module: Maven.Module,
+      latest: Option[Maven.Version],
+      versions: List[Maven.Version])
+      derives Codec
+
+  val system: Ref[IO, RepositorySystem] = Ref.unsafe {
+    val systemsupplier = new RepositorySystemSupplier()
+    systemsupplier.get()
+  }
+
+  def newSession(system: RepositorySystem) = IO
+    .blocking {
+      val s = new DefaultRepositorySystemSession()
+      s.setRepositoryListener(ConsoleRepositoryListener)
+      s.setTransferListener(ConsoleTransferListener)
+      s.setLocalRepositoryManager(
+        system.newLocalRepositoryManager(
+          s,
+          new LocalRepository(new File(Properties.userHome, ".m2/repository"))))
+      s
+    }
+
+  def versions(repository: RemoteRepository, module: Module) =
+    for {
+      system <- system.get
+      session <- newSession(system)
+      response <- IO.blocking {
+        val request = new MetadataRequest(
+          new DefaultMetadata(
+            module.groupId,
+            module.artifactId,
+            "maven-metadata.xml",
+            Nature.RELEASE))
+        request.setRepository(repository)
+        val resolved = system.resolveMetadata(session, java.util.List.of(request))
+
+        resolved.asScala.headOption
+      }
+      parsed <- IO.blocking {
+        response
+          .map(r => r.getMetadata.getFile.toPath)
+          .map(path => new MetadataXpp3Reader().read(java.nio.file.Files.newInputStream(path)))
+          .map(meta => meta.getVersioning)
+          .map(v =>
+            Versions(
+              module,
+              Some(Version(v.getLatest)),
+              v.getVersions.asScala.map(Version.apply).toList.reverse))
+      }
+    } yield parsed
+
+  def resolve(
+      repository: RemoteRepository,
+      coordinates: Coordinates
+  ) =
+    for {
+      system <- system.get
+      session <- newSession(system)
+      response <- IO.blocking {
+        val request = new ArtifactRequest()
+        request.setArtifact(coordinates.toArtifact)
+        request.setRepositories(java.util.List.of(repository))
+        system.resolveArtifact(session, request)
+      }
+    } yield Option.when(response.isResolved)(
+      ResolvedArtifact(coordinates, response.getArtifact.getFile.toPath))
+}

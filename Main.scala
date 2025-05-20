@@ -1,25 +1,20 @@
+import Maven.Coordinates
 import cats.data.ValidatedNel
 import cats.effect.*
 import cats.syntax.all.*
-import com.github.plokhotnyuk.jsoniter_scala.core.*
-import com.github.plokhotnyuk.jsoniter_scala.macros.*
 import com.monovore.decline.effect.CommandIOApp
 import com.monovore.decline.{Argument, Command, Opts}
-import coursier.*
-import coursier.core.Authentication
-import coursier.version.{Latest, Version}
 import de.lhns.fs2.compress.*
 import de.vandermeer.asciitable.AsciiTable
 import de.vandermeer.skb.interfaces.transformers.textformat.TextAlignment
 import fs2.io.file.{Files, Path}
+import io.circe.syntax.*
+import org.eclipse.aether.*
+import org.eclipse.aether.repository.RemoteRepository
+import org.eclipse.aether.util.repository.AuthenticationBuilder
 
+import scala.jdk.CollectionConverters.*
 import scala.util.control.NonFatal
-
-case class OurVersions(module: Module, latest: Option[Version], candidates: List[Version])
-object OurVersions {
-  implicit val versionsCodec: JsonValueCodec[OurVersions] =
-    JsonCodecMaker.make(CodecMakerConfig.withInlineOneValueClasses(true))
-}
 
 sealed trait VersionFormat
 object VersionFormat {
@@ -54,62 +49,51 @@ private object Options {
 
   val repositoryOpt =
     (usernameOpt, passwordOpt, repositoryNameOpt).mapN((username, password, repo) =>
-      MavenRepository(
-        repo,
-        Some(Authentication(username, password))
-      ))
+      new RemoteRepository.Builder("artifactory", "default", repo)
+        .setAuthentication(
+          new AuthenticationBuilder().addUsername(username).addPassword(password).build())
+        .build())
 
-  val groupIdOpt = Opts
-    .option[String]("groupId", short = "g", help = "GroupId. Defaults to no.sikt.studieadm")
-    .withDefault("no.sikt.studieadm")
-    .map(Organization.apply)
+  given Argument[Maven.Module] = new Argument[Maven.Module] {
+    override def read(string: String): ValidatedNel[String, Maven.Module] =
+      Maven.Module.parse(string) match {
+        case Some(module) => module.validNel
+        case None =>
+          s"Invalid module: '${string}', expected format is <groupId>:<artifactId>".invalidNel
+      }
 
-  val artifactIdOpt = Opts
-    .option[String]("artifactId", short = "a", help = "ArtifactId")
-    .map(ModuleName.apply)
-
-  val moduleOpt = (groupIdOpt, artifactIdOpt).mapN((g, a) => Module(g, a))
-
-  val versionOpt = Opts
-    .option[String]("version", "Selected version", short = "v")
-    .map(
-      Version.apply
-    )
-
-  val dependencyOpt =
-    (moduleOpt, versionOpt).mapN((m, v) => Dependency(m, VersionConstraint.fromVersion(v)))
-
-  def versions(repository: MavenRepository, module: Module) = {
-    val versions = Versions()
-      .addRepositories(repository)
-      .withModule(module)
-
-    IO.fromFuture(
-      IO.executionContext
-        .map(ec => versions.future()(ec))
-    ).map(ver =>
-      OurVersions(
-        module,
-        ver.latest(Latest.Release),
-        ver.candidates(Latest.Release).toList.distinct))
+    override def defaultMetavar: String = "coordinates"
   }
+
+  val moduleOpt = Opts.option[Maven.Module](
+    "coordinates",
+    "Coordinates for maven format is <groupId>:<artifactId>[:<extension>[:<classifier>]]:<version>")
+
+  given Argument[Maven.Coordinates] = new Argument[Maven.Coordinates] {
+    override def read(string: String): ValidatedNel[String, Maven.Coordinates] =
+      Coordinates.parse(string) match {
+        case Some(coords) => coords.validNel
+        case None =>
+          s"Invalid coords: '${string}', expected format is <groupId>:<artifactId>[:<extension>[:<classifier>]]:<version>".invalidNel
+      }
+
+    override def defaultMetavar: String = "coordinates"
+  }
+
+  val coordinatesOpt = Opts.option[Maven.Coordinates](
+    "coordinates",
+    "Coordinates for maven format is <groupId>:<artifactId>[:<extension>[:<classifier>]]:<version>")
 
   val versionsOpts =
-    (repositoryOpt, moduleOpt).mapN(versions)
+    (repositoryOpt, moduleOpt).mapN((repo, module) => Maven.versions(repo, module))
 
-  def download(repository: MavenRepository, dep: Dependency): IO[Option[Path]] = {
-    val fetch = Fetch()
-      .addRepositories(repository)
-      .addClassifiers(Classifier("compose"))
-      .addDependencies(dep)
-      .addArtifactTypes(Type.apply("zip"))
-    IO.fromFuture(
-      IO.executionContext
-        .map(ec => fetch.future()(ec))
-    ).map(_.headOption.map(f => Path.fromNioPath(f.toPath)))
-  }
+  def download(
+      repository: RemoteRepository,
+      coordinates: Maven.Coordinates
+  ): IO[Option[Maven.ResolvedArtifact]] =
+    Maven.resolve(repository, coordinates)
 
-  val downloadOpt = (repositoryOpt, dependencyOpt).mapN(download)
+  val downloadOpt = (repositoryOpt, coordinatesOpt).mapN(download)
 }
 
 object Main
@@ -118,13 +102,17 @@ object Main
       "Studieadministrajonens Maven Resolver",
       version = cli.build.BuildInfo.projectVersion.getOrElse("main")) {
 
-  def runVersions(versions: IO[OurVersions], format: VersionFormat): IO[ExitCode] =
+  def runVersions(
+      versions: IO[Option[Maven.Versions]],
+      format: VersionFormat,
+      maxVersions: Int): IO[ExitCode] =
     versions
+      .flatMap(x => IO.fromOption(x)(new RuntimeException("Unable to resolve versions")))
       .flatMap { our =>
         format match {
           case VersionFormat.JSON =>
-            IO.blocking(
-              writeToStream(our, Console.out)
+            IO.println(
+              our.copy(versions = our.versions.take(maxVersions)).asJson.spaces2
             )
 
           case VersionFormat.Table =>
@@ -136,9 +124,9 @@ object Main
                 t.addRow("latest", "candidates")
                 t.addRule()
                 t.addRow(
-                  our.latest.map(_.repr).getOrElse("none"), {
-                    val (toRender, extra) = our.candidates.splitAt(5)
-                    val rendered = toRender.map(_.repr).mkString(",")
+                  our.latest.getOrElse("none"), {
+                    val (toRender, extra) = our.versions.splitAt(5)
+                    val rendered = toRender.mkString(",")
                     rendered + (if (extra.nonEmpty) " [...]" else "")
                   }
                 )
@@ -151,7 +139,7 @@ object Main
             }
           case VersionFormat.Latest =>
             IO.fromOption(our.latest)(new RuntimeException("No latest version defined"))
-              .flatMap(v => IO.println(v.repr))
+              .flatMap(v => IO.println(v.toString))
         }
       }
       .as(ExitCode.Success)
@@ -169,13 +157,16 @@ object Main
       .compile
       .drain
 
-  def runDownload(action: IO[Option[Path]], extractTo: Option[Path]): IO[ExitCode] =
+  def runDownload(
+      action: IO[Option[Maven.ResolvedArtifact]],
+      extractTo: Option[Path]): IO[ExitCode] =
     action
-      .flatMap { file =>
+      .flatMap { maybeResolved =>
         for {
-          file <- IO.fromOption(file)(new RuntimeException("Unable to download dependency"))
-          _ <- IO.println(s"Downloaded to $file")
-          _ <- extractTo.traverse_(unArchive(file, _))
+          resolved <- IO.fromOption(maybeResolved)(
+            new RuntimeException("Unable to download dependency"))
+          _ <- IO.println(s"Downloaded to ${resolved.path}")
+          _ <- extractTo.traverse_(unArchive(Path.fromNioPath(resolved.path), _))
         } yield ExitCode.Success
       }
       .recoverWith { case NonFatal(e) =>
@@ -187,15 +178,16 @@ object Main
       Command("versions", "Versions")(
         (
           Options.versionsOpts,
-          Opts.option[VersionFormat]("format", "Format").withDefault(VersionFormat.Table))
-          .mapN(
-            runVersions
-          )
+          Opts.option[VersionFormat]("format", "Format").withDefault(VersionFormat.Table),
+          Opts.option[Int]("max", "Maximum versions to include").withDefault(10)
+        ).mapN(
+          runVersions
+        )
       ),
       Command("download", "Download the dependency")(
         (
           Options.downloadOpt,
-          Opts.option[java.nio.file.Path]("extract-to", "Extract to").map(Path.fromNioPath).orNone)
-          .mapN(runDownload))
+          Opts.option[java.nio.file.Path]("extract-to", "Extract to").map(Path.fromNioPath).orNone
+        ).mapN(runDownload))
     )
 }

@@ -1,0 +1,15 @@
+[tools]
+scala = "latest"
+
+[env]
+_.file = ".env.local"
+
+[tasks.versions]
+run = [
+    "scala run . -- versions"
+]
+
+[tasks.download]
+run = [
+    "scala run . -- download"
+]
