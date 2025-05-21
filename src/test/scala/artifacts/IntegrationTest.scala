@@ -33,9 +33,10 @@ class IntegrationTest extends CatsEffectSuite {
       _ <- Maven.deploy(
         repository,
         coordinates,
-        Path.apply("project.scala")
+        Path.apply("project.scala"),
+        verbose = false
       )
-      versions <- Maven.versions(repository, coordinates.module)
+      versions <- Maven.versions(repository, coordinates.module, verbose = false)
     } yield versions
     action.assertEquals(
       Some(Maven

@@ -13,3 +13,8 @@ run = [
 run = [
     "scala run . -- resolve"
 ]
+
+[tasks.test]
+run = [
+    "scala test ."
+]
