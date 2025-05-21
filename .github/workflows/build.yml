@@ -77,5 +77,5 @@ jobs:
       - name: Upload release binaries
         uses: softprops/action-gh-release@v2
         with:
-          paths: |
+          files: |
             ./assets/micro-maven-resolver-*
