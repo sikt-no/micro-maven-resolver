@@ -68,7 +68,7 @@ jobs:
               suffix="${BASH_REMATCH[1]}"
 
               # Construct the new filename
-              new_file="$DIR/micro-maven-resolver-$VERSION-$suffix"
+              new_file="assets/micro-maven-resolver-$VERSION-$suffix"
 
               # Rename the file
               mv "$file" "$new_file"
