@@ -3,7 +3,7 @@
 This uses the maven-resolver-supplier and exposes 3 functions from that very big api.
 
 ## versions
-given a module "<groupId>:<artifactId>" list all available versions.
+given a module `"<groupId>:<artifactId>"` list all available versions.
 Supports two formats.
 
 * JSON
