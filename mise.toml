@@ -9,7 +9,12 @@ run = [
     "scala run . -- versions"
 ]
 
-[tasks.download]
+[tasks.resolve]
 run = [
-    "scala run . -- download"
+    "scala run . -- resolve"
+]
+
+[tasks.test]
+run = [
+    "scala test ."
 ]

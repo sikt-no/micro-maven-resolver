@@ -1,9 +1,11 @@
+package artifacts
+
 import cats.effect.{IO, Resource}
 import com.reposilite.token.AccessTokenType
 import com.reposilite.token.api.{CreateAccessTokenRequest, SecretType}
-import munit.{AnyFixture, CatsEffectSuite}
 import com.reposilite.{Reposilite, ReposiliteFactory, ReposiliteParameters}
 import fs2.io.file.Path
+import munit.{AnyFixture, CatsEffectSuite}
 
 import java.net.ServerSocket
 
@@ -31,9 +33,10 @@ class IntegrationTest extends CatsEffectSuite {
       _ <- Maven.deploy(
         repository,
         coordinates,
-        Path.apply("project.scala")
+        Path.apply("project.scala"),
+        verbose = false
       )
-      versions <- Maven.versions(repository, coordinates.module)
+      versions <- Maven.versions(repository, coordinates.module, verbose = false)
     } yield versions
     action.assertEquals(
       Some(Maven

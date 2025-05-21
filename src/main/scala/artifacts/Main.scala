@@ -1,3 +1,5 @@
+package artifacts
+
 import Maven.Coordinates
 import cats.data.ValidatedNel
 import cats.effect.*
@@ -64,10 +66,6 @@ private object Options {
     override def defaultMetavar: String = "coordinates"
   }
 
-  val moduleOpt = Opts.option[Maven.Module](
-    "coordinates",
-    "Coordinates for maven format is <groupId>:<artifactId>[:<extension>[:<classifier>]]:<version>")
-
   given Argument[Maven.Coordinates] = new Argument[Maven.Coordinates] {
     override def read(string: String): ValidatedNel[String, Maven.Coordinates] =
       Coordinates.parse(string) match {
@@ -79,22 +77,25 @@ private object Options {
     override def defaultMetavar: String = "coordinates"
   }
 
+  val moduleOpt = Opts.option[Maven.Module](
+    "coordinates",
+    "Coordinates for maven format is <groupId>:<artifactId>[:<extension>[:<classifier>]]:<version>")
+
   val coordinatesOpt = Opts.option[Maven.Coordinates](
     "coordinates",
     "Coordinates for maven format is <groupId>:<artifactId>[:<extension>[:<classifier>]]:<version>")
 
+  val verboseOpts: Opts[Boolean] = Opts.flag("verbose", help = "Log to standard err").orFalse
   val versionsOpts: Opts[IO[Option[Maven.Versions]]] =
-    (repositoryOpt, moduleOpt).mapN(Maven.versions)
+    (repositoryOpt, moduleOpt, verboseOpts).mapN(Maven.versions)
   val resolveOpt: Opts[IO[Option[Maven.ResolvedArtifact]]] =
-    (repositoryOpt, coordinatesOpt).mapN(Maven.resolve)
+    (repositoryOpt, coordinatesOpt, verboseOpts).mapN(Maven.resolve)
   val deployOpt: Opts[IO[Unit]] =
     (
       repositoryOpt,
-      // todo: do we really need to do this?
-      coordinatesOpt.mapValidated(c =>
-        if (c.classifier.isDefined) c.validNel
-        else "There needs to be a classifier set".invalidNel),
-      Opts.argument[java.nio.file.Path]("file").map(Path.fromNioPath))
+      coordinatesOpt,
+      Opts.argument[java.nio.file.Path]("file").map(Path.fromNioPath),
+      verboseOpts)
       .mapN(
         Maven.deploy
       )
@@ -148,14 +149,22 @@ object Main
       }
 
   def unArchive(archive: Path, writeTo: Path)(implicit files: Files[IO]): IO[Unit] =
-    files
-      .readAll(archive)
-      .through(ZipUnarchiver.make[IO]().unarchive)
-      .flatMap { case (entry, data) =>
-        data.through(files.writeAll(writeTo.resolve(entry.name)))
-      }
-      .compile
-      .drain
+    for {
+      _ <- IO.consoleForIO.errorln(s"Extracting to ${writeTo}")
+      _ <- files.createDirectories(writeTo)
+      _ <- files
+        .readAll(archive)
+        .through(ZipUnarchiver.make[IO]().unarchive)
+        .flatMap { case (entry, data) =>
+          if (entry.isDirectory) {
+            fs2.Stream.exec(files.createDirectories(writeTo.resolve(entry.name))) ++ data.drain
+          } else {
+            data.through(files.writeAll(writeTo.resolve(entry.name)))
+          }
+        }
+        .compile
+        .drain
+    } yield ()
 
   def runDownload(action: IO[Option[Maven.ResolvedArtifact]], extractTo: Option[Path]): IO[Unit] =
     action
@@ -163,7 +172,7 @@ object Main
         for {
           resolved <- IO.fromOption(maybeResolved)(
             new RuntimeException("Unable to download dependency"))
-          _ <- IO.println(s"Downloaded to ${resolved.path}")
+          _ <- IO.println(resolved.path)
           _ <- extractTo.traverse_(unArchive(resolved.path, _))
         } yield ()
       }
