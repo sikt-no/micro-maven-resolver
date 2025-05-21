@@ -1,7 +1,14 @@
-name: build.yml
+name: CI
 on:
+  pull_request:
+    branches: [ '**', '!update/**', '!pr/**' ]
   push:
-    branches: [ "*" ]
+    branches: [ '**', '!update/**', '!pr/**' ]
+    tags: [ v* ]
+
+concurrency:
+  group: ${{ github.workflow }} @ ${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -11,13 +18,13 @@ jobs:
         os: [ ubuntu-latest, windows-latest, macos-latest, macos-13 ]
         include:
           - os: ubuntu-latest
-            filename: micro-maven-resolver-unknown-linux-amd64
+            platform: unknown-linux-amd64
           - os: windows-latest
-            filename: micro-maven-resolver-windows-amd64.exe
+            platform: windows-amd64.exe
           - os: macos-latest
-            filename: micro-maven-resolver-apple-darwin-aarch64
+            platform: apple-darwin-aarch64
           - os: macos-13
-            filename: micro-maven-resolver-apple-darwin-amd64
+            platform: apple-darwin-amd64
 
     runs-on: ${{matrix.os}}
     steps:
@@ -27,6 +34,29 @@ jobs:
           power: 'true'
           jvm: 'temurin:21'
       - run: scala-cli test .
-      - run: |
+      - name: Build native image
+        run: |
           mkdir -p target
-          scala-cli package  --native-image -o target/${{matrix.filename}} . -- --no-fallback
+          scala-cli package  --native-image -o target/micro-maven-resolver-${{matrix.platform}} . -- --no-fallback
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: micro-maven-resolver-${{matrix.platform}}
+          path: target/micro-maven-resolver-${{matrix.platform}}
+
+  publish:
+    name: Publish Artifacts
+    needs: [ build ]
+    if: github.event_name != 'pull_request' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: assets
+      - name: Upload release binaries
+        uses: alexellis/upload-assets@0.4.1
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          asset_paths: '["./assets/micro-maven-resolver-*"]'
