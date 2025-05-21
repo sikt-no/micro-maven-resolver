@@ -74,7 +74,14 @@ jobs:
               mv "$file" "$new_file"
             fi
           done
+      - id: assets
+        run: |
+          # Get the absolute path of the assets directory
+          ASSETS_DIR=$(realpath assets)
+          # Find all files matching a pattern in the assets directory and emit them as absolute paths
+          files=$(find $ASSETS_DIR -type f | tr '\n' ',' | sed 's/,$//')
+          echo "::set-output name=files::$files"
       - name: Upload release binaries
         uses: softprops/action-gh-release@v2
         with:
-          files: assets/*
+          files: "${{ steps.assets.outputs.files }}"
