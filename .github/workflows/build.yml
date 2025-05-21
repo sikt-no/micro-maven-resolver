@@ -32,7 +32,7 @@ jobs:
       - uses: VirtusLab/scala-cli-setup@main
         with:
           power: 'true'
-          jvm: 'temurin:21'
+          jvm: 'graalvm-community@21'
       - run: scala-cli test .
       - name: Build native image
         run: |
