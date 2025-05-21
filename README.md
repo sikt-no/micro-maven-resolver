@@ -11,7 +11,8 @@ Supports two formats.
 
 ## resolve
 Downloads the artifact with the coordinate specification defined by maven artifact.
-<groupId>:<artifactId>[:<extension>[:<classifier>]]:<version>
+
+```<groupId>:<artifactId>[:<extension>[:<classifier>]]:<version>```
 
 Can optionally extract the artifact to a folder.
 Will always download the file to the maven local repository.
@@ -22,7 +23,9 @@ This location cannot currently be overriden.
 
 ## upload
 Uploads a file with the given coordinate specification
-<groupId>:<artifactId>[:<extension>[:<classifier>]]:<version>
+
+```<groupId>:<artifactId>[:<extension>[:<classifier>]]:<version>```
+
 Generates a POM file, and handles maven-metadata.xml correctly.
 Now we can query the available versions for the supplied artifact file.
 
