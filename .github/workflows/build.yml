@@ -41,7 +41,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: micro-maven-resolver-${{matrix.platform}}
-          path: target/target/micro-maven-resolver-${{matrix.platform}}
+          path: target/micro-maven-resolver-${{matrix.platform}}
 
   publish:
     name: Publish Artifacts
