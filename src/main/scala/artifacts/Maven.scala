@@ -45,7 +45,9 @@ object Maven {
     given Codec[Classifier] = Codec.implied[String]
   }
 
-  case class Module(groupId: GroupId, artifactId: ArtifactId) derives Codec
+  case class Module(groupId: GroupId, artifactId: ArtifactId) derives Codec {
+    def rendered = s"${groupId}:${artifactId}"
+  }
 
   object Module {
     private val Pattern = "([^: ]+):([^: ]+)".r
@@ -69,6 +71,8 @@ object Maven {
         classifier.orNull,
         extension.getOrElse("jar"),
         version)
+
+    def rendered = toArtifact.toString
   }
 
   object Coordinates {

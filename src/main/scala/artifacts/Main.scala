@@ -79,7 +79,7 @@ private object Options {
 
   val moduleOpt = Opts.option[Maven.Module](
     "coordinates",
-    "Coordinates for maven format is <groupId>:<artifactId>[:<extension>[:<classifier>]]:<version>")
+    "Coordinates for maven format is <groupId>:<artifactId>")
 
   val coordinatesOpt = Opts.option[Maven.Coordinates](
     "coordinates",
@@ -103,7 +103,7 @@ private object Options {
 
 object Main
     extends CommandIOApp(
-      "maven-resolver",
+      "micro-maven-resolver",
       "Maven Resolver and publisher",
       version = cli.build.BuildInfo.projectVersion.getOrElse("main")) {
 
@@ -126,9 +126,10 @@ object Main
                 val t = new AsciiTable()
 
                 t.addRule()
-                t.addRow("latest", "candidates")
+                t.addRow("coordinates", "latest", "candidates")
                 t.addRule()
                 t.addRow(
+                  our.module.rendered,
                   our.latest.getOrElse("none"), {
                     val (toRender, extra) = our.versions.splitAt(5)
                     val rendered = toRender.mkString(",")
