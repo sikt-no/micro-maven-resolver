@@ -111,11 +111,13 @@ object Maven {
     systemsupplier.get()
   }
 
-  def newSession(system: RepositorySystem) = IO
+  def newSession(system: RepositorySystem, verbose: Boolean) = IO
     .blocking {
       val s = new DefaultRepositorySystemSession()
-      s.setRepositoryListener(ConsoleRepositoryListener)
-      s.setTransferListener(ConsoleTransferListener)
+      if (verbose) {
+        s.setRepositoryListener(ConsoleRepositoryListener)
+        s.setTransferListener(ConsoleTransferListener)
+      }
       s.setLocalRepositoryManager(
         system.newLocalRepositoryManager(
           s,
@@ -123,10 +125,10 @@ object Maven {
       s
     }
 
-  def versions(repository: RemoteRepository, module: Module) =
+  def versions(repository: RemoteRepository, module: Module, verbose: Boolean) =
     for {
       system <- system.get
-      session <- newSession(system)
+      session <- newSession(system, verbose)
       response <- IO.blocking {
         val request = new MetadataRequest(
           new DefaultMetadata(
@@ -152,11 +154,12 @@ object Maven {
 
   def resolve(
       repository: RemoteRepository,
-      coordinates: Coordinates
+      coordinates: Coordinates,
+      verbose: Boolean
   ) =
     for {
       system <- system.get
-      session <- newSession(system)
+      session <- newSession(system, verbose)
       response <- IO.blocking {
         val request = new ArtifactRequest()
         request.setArtifact(coordinates.toArtifact)
@@ -169,11 +172,12 @@ object Maven {
   def deploy(
       repository: RemoteRepository,
       coordinates: Coordinates,
-      path: Path
+      path: Path,
+      verbose: Boolean
   ): IO[Unit] = {
     def run(tempDir: Path) = for {
       system <- system.get
-      session <- newSession(system)
+      session <- newSession(system, verbose)
       pom <- generatePom(coordinates, tempDir)
       response <- IO.blocking {
         val request = new DeployRequest()
