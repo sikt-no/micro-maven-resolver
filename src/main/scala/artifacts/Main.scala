@@ -150,7 +150,7 @@ object Main
       }
 
   def unArchive(archive: Path, writeTo: Path)(implicit files: Files[IO]): IO[Unit] =
-    files
+    files.createDirectories(writeTo) >> files
       .readAll(archive)
       .through(ZipUnarchiver.make[IO]().unarchive)
       .flatMap { case (entry, data) =>
