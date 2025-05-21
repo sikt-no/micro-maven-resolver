@@ -8,3 +8,4 @@ metals.sbt
 .scala-build/
 *.build_artifacts.txt
 .env.local
+.vscode
