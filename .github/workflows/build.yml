@@ -18,13 +18,13 @@ jobs:
         os: [ ubuntu-latest, windows-latest, macos-latest, macos-13 ]
         include:
           - os: ubuntu-latest
-            platform: unknown-linux-amd64
+            platform: x86_64-pc-linux
           - os: windows-latest
-            platform: windows-amd64.exe
+            platform: x86_64-pc-windows.exe
           - os: macos-latest
-            platform: apple-darwin-aarch64
+            platform: aarch64-apple-darwin
           - os: macos-13
-            platform: apple-darwin-amd64
+            platform: x86_64-apple-darwin
 
     runs-on: ${{matrix.os}}
     steps:
@@ -32,12 +32,12 @@ jobs:
       - uses: VirtusLab/scala-cli-setup@main
         with:
           power: 'true'
-          jvm: 'temurin:21'
+          jvm: 'graalvm-community@21'
       - run: scala-cli test .
       - name: Build native image
         run: |
           mkdir -p target
-          scala-cli package  --native-image -o target/micro-maven-resolver-${{matrix.platform}} . -- --no-fallback
+          scala-cli package  --native-image --graalvm-jvm-id graalvm-community@21 -o target/micro-maven-resolver-${{matrix.platform}} . -- --no-fallback
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -49,14 +49,33 @@ jobs:
     needs: [ build ]
     if: github.event_name != 'pull_request' && startsWith(github.ref, 'refs/tags/v')
     runs-on: "ubuntu-latest"
+    permissions:
+      contents: write
     steps:
+      - id: get_version
+        uses: battila7/get-version-action@v2
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: assets
-      - name: Upload release binaries
-        uses: alexellis/upload-assets@0.4.1
+      - name: Add version to assets
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          VERSION: "${{steps.get_version.outputs.version-without-v}}"
+        run: |
+          for file in assets/micro-maven-resolver-*; do
+            # Extract the part after "micro-maven-resolver-"
+            if [[ $file =~ ^.*micro-maven-resolver-(.*)$ ]]; then
+              suffix="${BASH_REMATCH[1]}"
+
+              # Construct the new filename
+              new_file="$DIR/micro-maven-resolver-$VERSION-$suffix"
+
+              # Rename the file
+              mv "$file" "$new_file"
+            fi
+          done
+      - name: Upload release binaries
+        uses: softprops/action-gh-release@v2
         with:
-          asset_paths: '["./assets/micro-maven-resolver-*"]'
+          paths: |
+            ./assets/micro-maven-resolver-*
