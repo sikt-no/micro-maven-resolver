@@ -34,7 +34,8 @@ jobs:
           power: 'true'
           jvm: 'temurin:21'
       - run: scala-cli test .
-      - run: |
+      - name: Build native image
+        run: |
           mkdir -p target
           scala-cli package  --native-image -o target/micro-maven-resolver-${{matrix.platform}} . -- --no-fallback
       - name: Upload artifacts
