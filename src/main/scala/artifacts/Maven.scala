@@ -1,3 +1,5 @@
+package artifacts
+
 import cats.effect.*
 import fs2.io.file.{Files, Path}
 import io.circe.Codec
@@ -134,12 +136,10 @@ object Maven {
             Nature.RELEASE))
         request.setRepository(repository)
         val resolved = system.resolveMetadata(session, java.util.List.of(request))
-
-        resolved.asScala.headOption
+        resolved.asScala.headOption.flatMap(r => Option(r.getMetadata).map(_.getFile.toPath))
       }
       parsed <- IO.blocking {
         response
-          .map(r => r.getMetadata.getFile.toPath)
           .map(path => new MetadataXpp3Reader().read(java.nio.file.Files.newInputStream(path)))
           .map(meta => meta.getVersioning)
           .map(v =>

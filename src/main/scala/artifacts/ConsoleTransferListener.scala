@@ -1,3 +1,5 @@
+package artifacts
+
 import org.eclipse.aether.transfer.{AbstractTransferListener, TransferEvent, TransferResource}
 
 import java.text.{DecimalFormat, DecimalFormatSymbols}

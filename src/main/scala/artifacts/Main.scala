@@ -1,3 +1,5 @@
+package artifacts
+
 import Maven.Coordinates
 import cats.data.ValidatedNel
 import cats.effect.*
