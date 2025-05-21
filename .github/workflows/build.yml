@@ -1,4 +1,4 @@
-name: build.yml
+name: CI
 on:
   push:
     branches: [ "*" ]
@@ -11,13 +11,13 @@ jobs:
         os: [ ubuntu-latest, windows-latest, macos-latest, macos-13 ]
         include:
           - os: ubuntu-latest
-            filename: micro-maven-resolver-unknown-linux-amd64
+            platform: unknown-linux-amd64
           - os: windows-latest
-            filename: micro-maven-resolver-windows-amd64.exe
+            platform: windows-amd64.exe
           - os: macos-latest
-            filename: micro-maven-resolver-apple-darwin-aarch64
+            platform: apple-darwin-aarch64
           - os: macos-13
-            filename: micro-maven-resolver-apple-darwin-amd64
+            platform: apple-darwin-amd64
 
     runs-on: ${{matrix.os}}
     steps:
@@ -29,4 +29,4 @@ jobs:
       - run: scala-cli test .
       - run: |
           mkdir -p target
-          scala-cli package  --native-image -o target/${{matrix.filename}} . -- --no-fallback
+          scala-cli package  --native-image -o target/micro-maven-resolver-${{matrix.platform}} . -- --no-fallback
