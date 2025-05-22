@@ -46,6 +46,7 @@ jobs:
           fi
           echo "version=$version" >> $GITHUB_OUTPUT
       - name: Build native image
+        shell: bash
         run: |
           mkdir -p target
           scala-cli package --native-image --graalvm-jvm-id graalvm-community@21 \
