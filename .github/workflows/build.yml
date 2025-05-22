@@ -46,12 +46,9 @@ jobs:
           fi
           echo "version=$version" >> $GITHUB_OUTPUT
       - name: Build native image
-        shell: bash
         run: |
           mkdir -p target
-          scala-cli package --native-image --graalvm-jvm-id graalvm-community@21 \
-          -o target/micro-maven-resolver-${{matrix.platform}} . -- \
-          --no-fallback --strict-image-heap -march=native
+          scala-cli package --native-image --graalvm-jvm-id graalvm-community@21 -o target/micro-maven-resolver-${{matrix.platform}} . -- --no-fallback --strict-image-heap -march=native
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
