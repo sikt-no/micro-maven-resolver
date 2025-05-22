@@ -1,5 +1,6 @@
 //> using scala "3.7.0"
 //> using buildInfo
+//> using computeVersion "git:dynver"
 //> using repository "https://maven.reposilite.com/releases/"
 //> using options -Xfatal-warnings
 //> using dep "org.typelevel::cats-effect:3.6.1"
