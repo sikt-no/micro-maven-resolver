@@ -36,9 +36,9 @@ jobs:
       - run: scala-cli test .
       - id: get_version
         run: |
-          ref="${{github.ref_name}}"
-          if [[ $ref = "v*" ]]; then
-            version=${ref#v}
+          ref="${{github.ref}}"
+          if [[ $ref =~ ^"refs/tags/v" ]]; then
+            version=${ref#refs/tags/v}
           else
             sha="${{github.sha}}"
             version=${sha:0:8}
