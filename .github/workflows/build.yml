@@ -35,6 +35,7 @@ jobs:
           jvm: 'graalvm-community@21'
       - run: scala-cli test .
       - id: get_version
+        shell: bash
         run: |
           ref="${{github.ref}}"
           if [[ $ref =~ ^"refs/tags/v" ]]; then
