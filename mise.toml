@@ -18,3 +18,20 @@ run = [
 run = [
     "scala test ."
 ]
+
+[tasks.cli]
+run = [
+    "scala run . --"
+]
+
+[tasks.build-native-image]
+run = [
+    "mkdir -p target",
+    "scala --power package --native-image --graalvm-jvm-id graalvm-community@21 -o target/micro-maven-resolver . -- --no-fallback --strict-image-heap -march=native"
+]
+
+[tasks.clean]
+run = [
+    "rm -rf target",
+    "rm -rf .scala-build"
+]
