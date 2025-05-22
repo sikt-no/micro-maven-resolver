@@ -34,6 +34,16 @@ jobs:
           power: 'true'
           jvm: 'graalvm-community@21'
       - run: scala-cli test .
+      - id: get_version
+        run: |
+          ref="${{github.ref_name}}"
+          if [[ $ref = "v*" ]]; then
+            version=${ref#v}
+          else
+            sha="${{github.sha}}"
+            version=${sha:0:8}
+          fi
+          echo "version=$version" >> $GITHUB_OUTPUT
       - name: Build native image
         run: |
           mkdir -p target
@@ -41,7 +51,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: micro-maven-resolver-${{matrix.platform}}
+          name: micro-maven-resolver-${{steps.get_version.outputs.version}}-${{matrix.platform}}
           path: target/micro-maven-resolver-${{matrix.platform}}
 
   publish:
@@ -52,28 +62,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - id: get_version
-        uses: battila7/get-version-action@v2
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
           path: assets
-      - name: Add version to assets
-        env:
-          VERSION: "${{steps.get_version.outputs.version-without-v}}"
-        run: |
-          for file in assets/micro-maven-resolver-*; do
-            # Extract the part after "micro-maven-resolver-"
-            if [[ $file =~ ^.*micro-maven-resolver-(.*)$ ]]; then
-              suffix="${BASH_REMATCH[1]}"
-
-              # Construct the new filename
-              new_file="assets/micro-maven-resolver-$VERSION-$suffix"
-
-              # Rename the file
-              mv "$file" "$new_file"
-            fi
-          done
       - id: assets
         run: |
           # Get the absolute path of the assets directory
