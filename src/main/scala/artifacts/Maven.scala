@@ -219,7 +219,13 @@ object Maven {
       }
     } yield ()
 
-    Files[IO].tempDirectory.use(run)
+    if (path.extName.stripPrefix(".") == coordinates.extension.getOrElse("jar")) {
+      Files[IO].tempDirectory.use(run)
+    } else {
+      IO.raiseError(
+        new RuntimeException(
+          s"${path} does not match supplied extension: ${coordinates.extension.getOrElse("jar")}"))
+    }
   }
 
   private def generatePom(coordinates: Maven.Coordinates, tempDir: Path) = IO.blocking {
