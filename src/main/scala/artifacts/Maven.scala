@@ -10,7 +10,12 @@ import org.eclipse.aether.deployment.DeployRequest
 import org.eclipse.aether.metadata.DefaultMetadata
 import org.eclipse.aether.metadata.Metadata.Nature
 import org.eclipse.aether.repository.{LocalRepository, RemoteRepository}
-import org.eclipse.aether.resolution.{ArtifactRequest, MetadataRequest}
+import org.eclipse.aether.resolution.{
+  ArtifactDescriptorRequest,
+  ArtifactRequest,
+  MetadataRequest,
+  VersionRequest
+}
 import org.eclipse.aether.supplier.RepositorySystemSupplier
 import org.eclipse.aether.util.artifact.SubArtifact
 import org.eclipse.aether.util.repository.AuthenticationBuilder
@@ -21,30 +26,6 @@ import scala.util.Properties
 import scala.xml.XML
 
 object Maven {
-  opaque type GroupId <: String = String
-  object GroupId {
-    def apply(in: String): GroupId = in
-    given Codec[GroupId] = Codec.implied[String]
-  }
-
-  opaque type ArtifactId <: String = String
-  object ArtifactId {
-    def apply(in: String): ArtifactId = in
-    given Codec[ArtifactId] = Codec.implied[String]
-  }
-
-  opaque type Version <: String = String
-  object Version {
-    def apply(in: String): Version = in
-    given Codec[Version] = Codec.implied[String]
-  }
-
-  opaque type Classifier <: String = String
-  object Classifier {
-    def apply(in: String): Classifier = in
-    given Codec[Classifier] = Codec.implied[String]
-  }
-
   case class Module(groupId: GroupId, artifactId: ArtifactId) derives Codec {
     def rendered = s"${groupId}:${artifactId}"
   }
@@ -98,8 +79,9 @@ object Maven {
 
   case class Versions(
       module: Maven.Module,
-      latest: Option[Maven.Version],
-      versions: List[Maven.Version])
+      latest: Option[Version],
+      release: Option[Version],
+      versions: List[Version])
       derives Codec
 
   def repositoryFor(url: String, up: Option[(username: String, password: String)]) = {
@@ -120,7 +102,7 @@ object Maven {
       val s = new DefaultRepositorySystemSession()
       if (verbose) {
         s.setRepositoryListener(ConsoleRepositoryListener)
-        s.setTransferListener(ConsoleTransferListener)
+        s.setTransferListener(new ConsoleTransferListener)
       }
       s.setLocalRepositoryManager(
         system.newLocalRepositoryManager(
@@ -152,9 +134,26 @@ object Maven {
             Versions(
               module,
               Option(v.getLatest).orElse(Option(v.getRelease)).map(Version.apply),
-              v.getVersions.asScala.map(Version.apply).toList.reverse))
+              Option(v.getRelease).map(Version.apply),
+              v.getVersions.asScala.map(Version.apply).toList.reverse
+            ))
       }
     } yield parsed
+
+  def resolveVersion(
+      repository: RemoteRepository,
+      coordinates: Coordinates,
+      verbose: Boolean): IO[Option[Version]] =
+    for {
+      system <- system.get
+      session <- newSession(system, verbose)
+      response <- IO.blocking {
+        val request = new VersionRequest()
+        request.setArtifact(coordinates.toArtifact)
+        request.setRepositories(java.util.List.of(repository))
+        system.resolveVersion(session, request)
+      }
+    } yield Option(response.getVersion).map(Version.apply)
 
   def resolve(
       repository: RemoteRepository,
@@ -179,11 +178,8 @@ object Maven {
       path: Path,
       verbose: Boolean
   ): IO[Unit] = {
-    def run(tempDir: Path) = for {
-      system <- system.get
-      session <- newSession(system, verbose)
-      pom <- generatePom(coordinates, tempDir)
-      response <- IO.blocking {
+    def upload(system: RepositorySystem, session: DefaultRepositorySystemSession, pom: Path) =
+      IO.blocking {
         val request = new DeployRequest()
         request.setRepository(repository)
         val artifact = coordinates.toArtifact.setFile(path.toNioPath.toFile)
@@ -191,6 +187,29 @@ object Maven {
         request.setArtifacts(java.util.List.of(artifact, pomArtifact))
         system.deploy(session, request)
       }
+
+    def doesArtifactExistRemote(system: RepositorySystem, session: DefaultRepositorySystemSession) =
+      IO.blocking {
+        val request =
+          new ArtifactDescriptorRequest(coordinates.toArtifact, java.util.List.of(repository), "")
+        system.readArtifactDescriptor(session, request)
+        true
+      }.recover { case _ => false }
+
+    def run(tempDir: Path) = for {
+      system <- system.get
+      session <- newSession(system, verbose)
+      pom <- generatePom(coordinates, tempDir)
+      resolved <- doesArtifactExistRemote(system, session)
+      response <-
+        val snapshot = coordinates.version.isSnapshot
+        if (snapshot) {
+          upload(system, session, pom)
+        } else if (!resolved) {
+          upload(system, session, pom)
+        } else {
+          IO.consoleForIO.errorln(s"${coordinates} already exists in the remote repository")
+        }
     } yield ()
 
     Files[IO].tempDirectory.use(run)
