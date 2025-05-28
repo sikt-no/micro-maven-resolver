@@ -10,7 +10,12 @@ import org.eclipse.aether.deployment.DeployRequest
 import org.eclipse.aether.metadata.DefaultMetadata
 import org.eclipse.aether.metadata.Metadata.Nature
 import org.eclipse.aether.repository.{LocalRepository, RemoteRepository}
-import org.eclipse.aether.resolution.{ArtifactRequest, MetadataRequest, VersionRequest}
+import org.eclipse.aether.resolution.{
+  ArtifactDescriptorRequest,
+  ArtifactRequest,
+  MetadataRequest,
+  VersionRequest
+}
 import org.eclipse.aether.supplier.RepositorySystemSupplier
 import org.eclipse.aether.util.artifact.SubArtifact
 import org.eclipse.aether.util.repository.AuthenticationBuilder
@@ -170,8 +175,13 @@ object Maven {
     for {
       system <- system.get
       session <- newSession(system, verbose)
-      version <- resolveVersionIn(coordinates, repository, system, session)
-    } yield version
+      response <- IO.blocking {
+        val request = new VersionRequest()
+        request.setArtifact(coordinates.toArtifact)
+        request.setRepositories(java.util.List.of(repository))
+        system.resolveVersion(session, request)
+      }
+    } yield Option(response.getVersion).map(Version.apply)
 
   def resolve(
       repository: RemoteRepository,
@@ -206,11 +216,19 @@ object Maven {
         system.deploy(session, request)
       }
 
+    def doesArtifactExistRemote(system: RepositorySystem, session: DefaultRepositorySystemSession) =
+      IO.blocking {
+        val request =
+          new ArtifactDescriptorRequest(coordinates.toArtifact, java.util.List.of(repository), "")
+        system.readArtifactDescriptor(session, request)
+        true
+      }.recover { case _ => false }
+
     def run(tempDir: Path) = for {
       system <- system.get
       session <- newSession(system, verbose)
       pom <- generatePom(coordinates, tempDir)
-      resolved <- resolveVersionIn(coordinates, repository, system, session).map(_.isDefined)
+      resolved <- doesArtifactExistRemote(system, session)
       response <-
         val snapshot = coordinates.version.isSnapshot
         if (snapshot) {
@@ -224,19 +242,6 @@ object Maven {
 
     Files[IO].tempDirectory.use(run)
   }
-
-  private def resolveVersionIn(
-      coordinates: Coordinates,
-      repository: RemoteRepository,
-      system: RepositorySystem,
-      session: RepositorySystemSession): IO[Option[Version]] = for {
-    response <- IO.blocking {
-      val request = new VersionRequest()
-      request.setArtifact(coordinates.toArtifact)
-      request.setRepositories(java.util.List.of(repository))
-      system.resolveVersion(session, request)
-    }
-  } yield Option(response.getVersion).map(Version.apply)
 
   private def generatePom(coordinates: Maven.Coordinates, tempDir: Path) = IO.blocking {
     val xml =
