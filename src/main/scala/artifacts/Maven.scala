@@ -10,7 +10,7 @@ import org.eclipse.aether.deployment.DeployRequest
 import org.eclipse.aether.metadata.DefaultMetadata
 import org.eclipse.aether.metadata.Metadata.Nature
 import org.eclipse.aether.repository.{LocalRepository, RemoteRepository}
-import org.eclipse.aether.resolution.{ArtifactRequest, MetadataRequest}
+import org.eclipse.aether.resolution.{ArtifactRequest, MetadataRequest, VersionRequest}
 import org.eclipse.aether.supplier.RepositorySystemSupplier
 import org.eclipse.aether.util.artifact.SubArtifact
 import org.eclipse.aether.util.repository.AuthenticationBuilder
@@ -99,6 +99,7 @@ object Maven {
   case class Versions(
       module: Maven.Module,
       latest: Option[Maven.Version],
+      release: Option[Maven.Version],
       versions: List[Maven.Version])
       derives Codec
 
@@ -152,9 +153,26 @@ object Maven {
             Versions(
               module,
               Option(v.getLatest).orElse(Option(v.getRelease)).map(Version.apply),
-              v.getVersions.asScala.map(Version.apply).toList.reverse))
+              Option(v.getRelease).map(Version.apply),
+              v.getVersions.asScala.map(Version.apply).toList.reverse
+            ))
       }
     } yield parsed
+
+  def resolveVersion(
+      repository: RemoteRepository,
+      coordinates: Coordinates,
+      verbose: Boolean): IO[Option[Version]] =
+    for {
+      system <- system.get
+      session <- newSession(system, verbose)
+      response <- IO.blocking {
+        val request = new VersionRequest()
+        request.setArtifact(coordinates.toArtifact)
+        request.setRepositories(java.util.List.of(repository))
+        system.resolveVersion(session, request)
+      }
+    } yield Option(response.getVersion).map(Version.apply)
 
   def resolve(
       repository: RemoteRepository,

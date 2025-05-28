@@ -11,26 +11,20 @@ import de.vandermeer.asciitable.AsciiTable
 import de.vandermeer.skb.interfaces.transformers.textformat.TextAlignment
 import fs2.io.file.{Files, Path}
 import io.circe.syntax.*
-import org.eclipse.aether.*
 import org.eclipse.aether.repository.RemoteRepository
-import org.eclipse.aether.util.repository.AuthenticationBuilder
 
-import scala.jdk.CollectionConverters.*
 import scala.util.control.NonFatal
 
-sealed trait VersionFormat
-object VersionFormat {
-  case object JSON extends VersionFormat
-  case object Table extends VersionFormat
-  case object Latest extends VersionFormat
+enum VersionFormat extends Enum[VersionFormat] {
+  case json, table, latest, release
+}
 
-  implicit val args: Argument[VersionFormat] = new Argument[VersionFormat] {
-    override def read(string: String): ValidatedNel[String, VersionFormat] =
-      string match {
-        case "json" => VersionFormat.JSON.validNel
-        case "table" => VersionFormat.Table.validNel
-        case "latest" => VersionFormat.Latest.validNel
-        case x => s"'$x' is not a valid format".invalidNel
+object VersionFormat {
+  given Argument[VersionFormat] = new Argument[VersionFormat] {
+    override def read(name: String): ValidatedNel[String, VersionFormat] =
+      Option(VersionFormat.valueOf(name)).match {
+        case Some(v) => v.validNel
+        case None => s"'$name' is not a valid format".invalidNel
       }
 
     override def defaultMetavar: String = "format"
@@ -77,17 +71,16 @@ private object Options {
     override def defaultMetavar: String = "coordinates"
   }
 
-  val moduleOpt = Opts.option[Maven.Module](
-    "coordinates",
-    "Coordinates for maven format is <groupId>:<artifactId>")
+  val moduleOpt = Opts.argument[Maven.Module]("coordinates")
 
-  val coordinatesOpt = Opts.option[Maven.Coordinates](
-    "coordinates",
-    "Coordinates for maven format is <groupId>:<artifactId>[:<extension>[:<classifier>]]:<version>")
+  val coordinatesOpt = Opts.argument[Maven.Coordinates]("coordinates")
 
   val verboseOpts: Opts[Boolean] = Opts.flag("verbose", help = "Log to standard err").orFalse
   val versionsOpts: Opts[IO[Option[Maven.Versions]]] =
     (repositoryOpt, moduleOpt, verboseOpts).mapN(Maven.versions)
+
+  val resolveVersionOpt: Opts[IO[Option[Maven.Version]]] =
+    (repositoryOpt, coordinatesOpt, verboseOpts).mapN(Maven.resolveVersion)
   val resolveOpt: Opts[IO[Option[Maven.ResolvedArtifact]]] =
     (repositoryOpt, coordinatesOpt, verboseOpts).mapN(Maven.resolve)
   val deployOpt: Opts[IO[Unit]] =
@@ -107,7 +100,7 @@ object Main
       "Maven Resolver and publisher",
       version = cli.build.BuildInfo.projectVersion.getOrElse("main")) {
 
-  def runVersions(
+  private def runVersions(
       versions: IO[Option[Maven.Versions]],
       format: VersionFormat,
       maxVersions: Int): IO[Unit] =
@@ -115,12 +108,12 @@ object Main
       .flatMap(x => IO.fromOption(x)(new RuntimeException("Unable to resolve versions")))
       .flatMap { our =>
         format match {
-          case VersionFormat.JSON =>
+          case VersionFormat.json =>
             IO.println(
               our.copy(versions = our.versions.take(maxVersions)).asJson.spaces2
             )
 
-          case VersionFormat.Table =>
+          case VersionFormat.table =>
             IO.println {
               val table = {
                 val t = new AsciiTable()
@@ -143,13 +136,16 @@ object Main
 
               table.render()
             }
-          case VersionFormat.Latest =>
+          case VersionFormat.latest =>
             IO.fromOption(our.latest)(new RuntimeException("No latest version defined"))
+              .flatMap(v => IO.println(v))
+          case VersionFormat.release =>
+            IO.fromOption(our.release)(new RuntimeException("No latest version defined"))
               .flatMap(v => IO.println(v))
         }
       }
 
-  def unArchive(archive: Path, writeTo: Path)(implicit files: Files[IO]): IO[Unit] =
+  private def extract(archive: Path, writeTo: Path)(implicit files: Files[IO]): IO[Unit] =
     for {
       _ <- IO.consoleForIO.errorln(s"Extracting to ${writeTo}")
       _ <- files.createDirectories(writeTo)
@@ -167,14 +163,26 @@ object Main
         .drain
     } yield ()
 
-  def runDownload(action: IO[Option[Maven.ResolvedArtifact]], extractTo: Option[Path]): IO[Unit] =
+  private def runResolve(
+      action: IO[Option[Maven.ResolvedArtifact]],
+      extractTo: Option[Path]): IO[Unit] =
     action
       .flatMap { maybeResolved =>
         for {
           resolved <- IO.fromOption(maybeResolved)(
             new RuntimeException("Unable to download dependency"))
           _ <- IO.println(resolved.path)
-          _ <- extractTo.traverse_(unArchive(resolved.path, _))
+          _ <- extractTo.traverse_(extract(resolved.path, _))
+        } yield ()
+      }
+
+  private def runResolveVersion(action: IO[Option[Maven.Version]]): IO[Unit] =
+    action
+      .flatMap { maybeResolved =>
+        for {
+          resolved <- IO.fromOption(maybeResolved)(
+            new RuntimeException("Unable to download dependency"))
+          _ <- IO.println(resolved)
         } yield ()
       }
 
@@ -185,19 +193,30 @@ object Main
 
   override def main: Opts[IO[ExitCode]] =
     Opts.subcommands(
-      Command("versions", "Versions")(
+      Command("versions", "Versions\nCoordinates are expected as <groupId>:<artifactId>")(
         (
           Options.versionsOpts,
-          Opts.option[VersionFormat]("format", "Format").withDefault(VersionFormat.Table),
+          Opts.option[VersionFormat]("format", "Format").withDefault(VersionFormat.table),
           Opts.option[Int]("max", "Maximum versions to include").withDefault(10)
         ).mapN(runVersions).map(runIO)
       ),
-      Command("resolve", "Resolve the artifact")(
+      Command(
+        "resolve-version",
+        "Resolve version\nCoordinates are expected as <groupId>:<artifactId>[:<extension>[:<classifier>]]:<version>")(
+        Options.resolveVersionOpt
+          .map(runResolveVersion)
+          .map(runIO)
+      ),
+      Command(
+        "resolve",
+        "Resolve the artifact\nCoordinates are expected as <groupId>:<artifactId>[:<extension>[:<classifier>]]:<version>")(
         (
           Options.resolveOpt,
           Opts.option[java.nio.file.Path]("extract-to", "Extract to").map(Path.fromNioPath).orNone
-        ).mapN(runDownload).map(runIO)),
-      Command("deploy", "Deploy the artifact")(
+        ).mapN(runResolve).map(runIO)),
+      Command(
+        "deploy",
+        "Deploy the artifact\nCoordinates are expected as <groupId>:<artifactId>[:<extension>[:<classifier>]]:<version>")(
         Options.deployOpt.map(runIO)
       )
     )

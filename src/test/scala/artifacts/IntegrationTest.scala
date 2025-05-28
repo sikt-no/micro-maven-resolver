@@ -39,8 +39,13 @@ class IntegrationTest extends CatsEffectSuite {
       versions <- Maven.versions(repository, coordinates.module, verbose = false)
     } yield versions
     action.assertEquals(
-      Some(Maven
-        .Versions(coordinates.module, Some(Maven.Version("0.1.0")), List(Maven.Version("0.1.0")))))
+      Some(
+        Maven
+          .Versions(
+            coordinates.module,
+            Some(Maven.Version("0.1.0")),
+            Some(Maven.Version("0.1.0")),
+            List(Maven.Version("0.1.0")))))
   }
 }
 
@@ -53,7 +58,6 @@ object IntegrationTest {
         params.setPort(port)
         params.setWorkingDirectory(tempDir.toNioPath)
         params.setPluginDirectory((tempDir / "plugins").toNioPath)
-        // params.setTokenEntries(Array("admin:token"))
         params.setUsageHelpRequested(false)
         params.setLevel("WARN")
         params.setTestEnv(true)
