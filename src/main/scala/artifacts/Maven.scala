@@ -51,7 +51,8 @@ object Maven {
         module.artifactId,
         classifier.orNull,
         extension.getOrElse("jar"),
-        version)
+        version.fixMetaVersion
+      )
 
     def rendered = toArtifact.toString
   }
@@ -201,15 +202,21 @@ object Maven {
       session <- newSession(system, verbose)
       pom <- generatePom(coordinates, tempDir)
       resolved <- doesArtifactExistRemote(system, session)
-      response <-
-        val snapshot = coordinates.version.isSnapshot
-        if (snapshot) {
-          upload(system, session, pom)
-        } else if (!resolved) {
-          upload(system, session, pom)
+      response <- {
+        if (coordinates.version.isMetaVersion) {
+          IO.raiseError(
+            new RuntimeException("a meta version (release, latest) is not allowed here"))
         } else {
-          IO.consoleForIO.errorln(s"${coordinates} already exists in the remote repository")
+          val snapshot = coordinates.version.isSnapshot
+          if (snapshot) {
+            upload(system, session, pom)
+          } else if (!resolved) {
+            upload(system, session, pom)
+          } else {
+            IO.consoleForIO.errorln(s"${coordinates} already exists in the remote repository")
+          }
         }
+      }
     } yield ()
 
     Files[IO].tempDirectory.use(run)
