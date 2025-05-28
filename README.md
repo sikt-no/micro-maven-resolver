@@ -23,6 +23,7 @@ The version specification allows us to have two meta version (LATEST, RELEASE).
 We accept lowercase variants of these meta versions as well.
 
 eg:
+
 ```
 # implicit extension=jar, classifier=
 org.openapitools:openapi-generator-cli:latest
@@ -76,9 +77,9 @@ eg:
 ```resolve-version org.openapitools:openapi-generator-cli:latest```
 ```resolve-version org.openapitools:openapi-generator-cli:release```
 
-## upload
+## deploy
 
-Uploads a file with the given coordinate specification
+Deploys a file with the given coordinate specification
 
 Generates a POM file, and handles maven-metadata.xml correctly.
 Now we can query the available versions for the supplied artifact file.
