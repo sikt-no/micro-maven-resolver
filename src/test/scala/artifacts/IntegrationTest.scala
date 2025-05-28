@@ -27,7 +27,7 @@ class IntegrationTest extends CatsEffectSuite {
     val repository = Maven.repositoryFor(
       s"http://localhost:${repo.getParameters.getPort}/releases",
       Some((username = "admin", password = "token")))
-    val coordinates = Maven.Coordinates.parse("com.example:example:sources:scala:0.1.0").get
+    val coordinates = Maven.Coordinates.parse("com.example:example:scala:sources:0.1.0").get
 
     val action = for {
       _ <- Maven.deploy(
