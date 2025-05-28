@@ -79,7 +79,7 @@ private object Options {
   val versionsOpts: Opts[IO[Option[Maven.Versions]]] =
     (repositoryOpt, moduleOpt, verboseOpts).mapN(Maven.versions)
 
-  val resolveVersionOpt: Opts[IO[Option[Maven.Version]]] =
+  val resolveVersionOpt: Opts[IO[Option[Version]]] =
     (repositoryOpt, coordinatesOpt, verboseOpts).mapN(Maven.resolveVersion)
   val resolveOpt: Opts[IO[Option[Maven.ResolvedArtifact]]] =
     (repositoryOpt, coordinatesOpt, verboseOpts).mapN(Maven.resolve)
@@ -176,7 +176,7 @@ object Main
         } yield ()
       }
 
-  private def runResolveVersion(action: IO[Option[Maven.Version]]): IO[Unit] =
+  private def runResolveVersion(action: IO[Option[Version]]): IO[Unit] =
     action
       .flatMap { maybeResolved =>
         for {

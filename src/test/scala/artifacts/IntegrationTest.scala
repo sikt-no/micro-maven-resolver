@@ -43,9 +43,9 @@ class IntegrationTest extends CatsEffectSuite {
         Maven
           .Versions(
             coordinates.module,
-            Some(Maven.Version("0.1.0")),
-            Some(Maven.Version("0.1.0")),
-            List(Maven.Version("0.1.0")))))
+            Some(Version("0.1.0")),
+            Some(Version("0.1.0")),
+            List(Version("0.1.0")))))
   }
 }
 

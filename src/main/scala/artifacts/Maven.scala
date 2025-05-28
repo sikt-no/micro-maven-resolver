@@ -26,34 +26,6 @@ import scala.util.Properties
 import scala.xml.XML
 
 object Maven {
-  opaque type GroupId <: String = String
-  object GroupId {
-    def apply(in: String): GroupId = in
-    given Codec[GroupId] = Codec.implied[String]
-  }
-
-  opaque type ArtifactId <: String = String
-  object ArtifactId {
-    def apply(in: String): ArtifactId = in
-    given Codec[ArtifactId] = Codec.implied[String]
-  }
-
-  opaque type Version <: String = String
-  object Version {
-    def apply(in: String): Version = in
-    given Codec[Version] = Codec.implied[String]
-  }
-
-  extension (v: Version) {
-    def isSnapshot = v.endsWith("-SNAPSHOT")
-  }
-
-  opaque type Classifier <: String = String
-  object Classifier {
-    def apply(in: String): Classifier = in
-    given Codec[Classifier] = Codec.implied[String]
-  }
-
   case class Module(groupId: GroupId, artifactId: ArtifactId) derives Codec {
     def rendered = s"${groupId}:${artifactId}"
   }
@@ -107,9 +79,9 @@ object Maven {
 
   case class Versions(
       module: Maven.Module,
-      latest: Option[Maven.Version],
-      release: Option[Maven.Version],
-      versions: List[Maven.Version])
+      latest: Option[Version],
+      release: Option[Version],
+      versions: List[Version])
       derives Codec
 
   def repositoryFor(url: String, up: Option[(username: String, password: String)]) = {
