@@ -39,6 +39,10 @@ object Maven {
     given Codec[Version] = Codec.implied[String]
   }
 
+  extension (v: Version) {
+    def isSnapshot = v.endsWith("-SNAPSHOT")
+  }
+
   opaque type Classifier <: String = String
   object Classifier {
     def apply(in: String): Classifier = in
@@ -121,7 +125,7 @@ object Maven {
       val s = new DefaultRepositorySystemSession()
       if (verbose) {
         s.setRepositoryListener(ConsoleRepositoryListener)
-        s.setTransferListener(ConsoleTransferListener)
+        s.setTransferListener(new ConsoleTransferListener)
       }
       s.setLocalRepositoryManager(
         system.newLocalRepositoryManager(
@@ -166,13 +170,8 @@ object Maven {
     for {
       system <- system.get
       session <- newSession(system, verbose)
-      response <- IO.blocking {
-        val request = new VersionRequest()
-        request.setArtifact(coordinates.toArtifact)
-        request.setRepositories(java.util.List.of(repository))
-        system.resolveVersion(session, request)
-      }
-    } yield Option(response.getVersion).map(Version.apply)
+      version <- resolveVersionIn(coordinates, repository, system, session)
+    } yield version
 
   def resolve(
       repository: RemoteRepository,
@@ -197,11 +196,8 @@ object Maven {
       path: Path,
       verbose: Boolean
   ): IO[Unit] = {
-    def run(tempDir: Path) = for {
-      system <- system.get
-      session <- newSession(system, verbose)
-      pom <- generatePom(coordinates, tempDir)
-      response <- IO.blocking {
+    def upload(system: RepositorySystem, session: DefaultRepositorySystemSession, pom: Path) =
+      IO.blocking {
         val request = new DeployRequest()
         request.setRepository(repository)
         val artifact = coordinates.toArtifact.setFile(path.toNioPath.toFile)
@@ -209,10 +205,38 @@ object Maven {
         request.setArtifacts(java.util.List.of(artifact, pomArtifact))
         system.deploy(session, request)
       }
+
+    def run(tempDir: Path) = for {
+      system <- system.get
+      session <- newSession(system, verbose)
+      pom <- generatePom(coordinates, tempDir)
+      resolved <- resolveVersionIn(coordinates, repository, system, session).map(_.isDefined)
+      response <-
+        val snapshot = coordinates.version.isSnapshot
+        if (snapshot) {
+          upload(system, session, pom)
+        } else if (!resolved) {
+          upload(system, session, pom)
+        } else {
+          IO.consoleForIO.errorln(s"${coordinates} already exists in the remote repository")
+        }
     } yield ()
 
     Files[IO].tempDirectory.use(run)
   }
+
+  private def resolveVersionIn(
+      coordinates: Coordinates,
+      repository: RemoteRepository,
+      system: RepositorySystem,
+      session: RepositorySystemSession): IO[Option[Version]] = for {
+    response <- IO.blocking {
+      val request = new VersionRequest()
+      request.setArtifact(coordinates.toArtifact)
+      request.setRepositories(java.util.List.of(repository))
+      system.resolveVersion(session, request)
+    }
+  } yield Option(response.getVersion).map(Version.apply)
 
   private def generatePom(coordinates: Maven.Coordinates, tempDir: Path) = IO.blocking {
     val xml =

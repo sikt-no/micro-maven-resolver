@@ -2,7 +2,7 @@
 //> using buildInfo
 //> using computeVersion "git:dynver"
 //> using repository "https://maven.reposilite.com/releases/"
-//> using options -Xfatal-warnings
+//> using options -Xfatal-warnings -deprecation
 //> using dep "org.typelevel::cats-effect:3.6.1"
 //> using dep "com.monovore::decline-effect:2.5.0"
 //> using dep "de.vandermeer:asciitable:0.3.2"
