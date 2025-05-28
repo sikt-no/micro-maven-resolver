@@ -6,7 +6,7 @@ This uses the maven-resolver-supplier and exposes a few functions from that very
 
 ```<groupId>:<artifactId>[:<extension>[:<classifier>]]:<version>```
 
-eg:
+### examples
 
 ```
 # implicit extension=jar, classifier=
@@ -22,7 +22,7 @@ org.openapitools:openapi-generator-cli:jar:sources:7.13.0
 The version specification allows us to have two meta version (LATEST, RELEASE).
 We accept lowercase variants of these meta versions as well.
 
-eg:
+### examples
 
 ```
 # implicit extension=jar, classifier=
