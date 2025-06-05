@@ -218,9 +218,13 @@ object Maven {
         }
       }
     } yield ()
+    val fileExistAndNonEmpty =
+      Files[IO].getBasicFileAttributes(path).map(attr => attr.isRegularFile && attr.size > 0)
 
     if (path.extName.stripPrefix(".") == coordinates.extension.getOrElse("jar")) {
-      Files[IO].tempDirectory.use(run)
+      fileExistAndNonEmpty.ifM(
+        Files[IO].tempDirectory.use(run),
+        IO.raiseError(new RuntimeException("File does not exist or is empty")))
     } else {
       IO.raiseError(
         new RuntimeException(
