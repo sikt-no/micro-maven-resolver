@@ -15,8 +15,8 @@ object ArtifactId {
 
 opaque type Version <: String = String
 object Version {
-  val Release = "RELEASE"
-  val Latest = "LATEST"
+  val Release: Version = "RELEASE"
+  val Latest: Version = "LATEST"
 
   def apply(in: String): Version = in
   given Codec[Version] = Codec.implied[String]
@@ -28,7 +28,10 @@ object Version {
 
   extension (v: Version) {
     def isSnapshot = v.endsWith("-SNAPSHOT")
+    def withoutSnapshot: Version = v.stripSuffix("-SNAPSHOT")
     def isMetaVersion: Boolean = isMeta(v)
+    def isRelease: Boolean = v.toUpperCase() == Release
+    def isLatest: Boolean = v.toUpperCase() == Latest
     def fixMetaVersion: Version = if (isMeta(v)) v.toUpperCase else v
   }
 }

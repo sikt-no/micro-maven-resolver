@@ -71,13 +71,25 @@ private object Options {
     override def defaultMetavar: String = "coordinates"
   }
 
+  given Argument[Maven.Module | Maven.Coordinates] =
+    new Argument[Maven.Module | Maven.Coordinates] {
+      override def read(string: String): ValidatedNel[String, Maven.Module | Maven.Coordinates] = {
+        val module = Argument[Maven.Module].read(string)
+        val coordinates = Argument[Maven.Coordinates].read(string)
+        module.orElse(coordinates)
+      }
+
+      override def defaultMetavar: String = "coordinates"
+    }
+
   val moduleOpt = Opts.argument[Maven.Module]("coordinates")
+  val coordinatesOrModuleOpt = Opts.argument[Maven.Module | Maven.Coordinates]("coordinates")
 
   val coordinatesOpt = Opts.argument[Maven.Coordinates]("coordinates")
 
   val verboseOpts: Opts[Boolean] = Opts.flag("verbose", help = "Log to standard err").orFalse
   val versionsOpts: Opts[IO[Option[Maven.Versions]]] =
-    (repositoryOpt, moduleOpt, verboseOpts).mapN(Maven.versions)
+    (repositoryOpt, coordinatesOrModuleOpt, verboseOpts).mapN(Maven.versions)
 
   val resolveVersionOpt: Opts[IO[Option[Version]]] =
     (repositoryOpt, coordinatesOpt, verboseOpts).mapN(Maven.resolveVersion)

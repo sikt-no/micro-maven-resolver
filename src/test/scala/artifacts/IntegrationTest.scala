@@ -1,7 +1,7 @@
 package artifacts
 
 import cats.effect.{IO, Resource}
-import com.reposilite.token.AccessTokenType
+import com.reposilite.token.{AccessTokenPermission, AccessTokenType}
 import com.reposilite.token.api.{CreateAccessTokenRequest, SecretType}
 import com.reposilite.{Reposilite, ReposiliteFactory, ReposiliteParameters}
 import fs2.io.file.Path
@@ -36,7 +36,7 @@ class IntegrationTest extends CatsEffectSuite {
         Path.apply("project.scala"),
         verbose = false
       )
-      versions <- Maven.versions(repository, coordinates.module, verbose = false)
+      versions <- Maven.versions(repository, coordinates, verbose = false)
     } yield versions
     action.assertEquals(
       Some(
@@ -45,7 +45,44 @@ class IntegrationTest extends CatsEffectSuite {
             coordinates.module,
             Some(Version("0.1.0")),
             Some(Version("0.1.0")),
-            List(Version("0.1.0")))))
+            List(Version("0.1.0")),
+            None,
+            Nil)
+      ))
+  }
+
+  test("deploy-snapshot") {
+    val repo = mavenRepo()
+    val repository = Maven.repositoryFor(
+      s"http://localhost:${repo.getParameters.getPort}/snapshots",
+      Some((username = "admin", password = "token")))
+    val coordinates =
+      Maven.Coordinates.parse("com.example:example:scala:sources:0.1.0-SNAPSHOT").get
+
+    val action = for {
+      _ <- Maven.deploy(
+        repository,
+        coordinates,
+        Path.apply("project.scala"),
+        verbose = false
+      )
+      versions <- Maven.versions(repository, coordinates, verbose = false)
+      resolvedVersion <- Maven.resolveVersion(repository, coordinates, verbose = false)
+      /*latest <- Maven.resolveVersion(
+        repository,
+        coordinates.copy(version = Version.Latest),
+        verbose = false)*/
+      release <- Maven.resolveVersion(
+        repository,
+        coordinates.copy(version = Version.Release),
+        verbose = false)
+    } yield (resolvedVersion, release, versions)
+    action.map { (version, release, versions) =>
+      assertNotEquals(version.get, coordinates.version)
+      assertEquals(version, versions.get.snapshot.get.asVersion(coordinates.version))
+      assert(release.isEmpty)
+      // assertEquals(version, latest)
+    }
   }
 }
 
@@ -68,7 +105,10 @@ object IntegrationTest {
               AccessTokenType.TEMPORARY,
               "admin",
               SecretType.RAW,
-              "token")))
+              "token",
+              java.util.Set.of(AccessTokenPermission.MANAGER),
+              java.util.Set.of()
+            )))
         val repo = ReposiliteFactory.INSTANCE.createReposilite(params)
         repo.launch().fold(IO.pure, IO.raiseError)
       }.flatten)
