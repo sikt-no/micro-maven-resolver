@@ -89,7 +89,7 @@ class IntegrationTest extends CatsEffectSuite {
       assertNotEquals(version.get, coordinates.version)
       assertEquals(version, versions.get.snapshot.get.asVersion(coordinates.version))
       assert(release.isEmpty)
-      assertEquals(Some(coordinates.version), latest)
+      assertEquals(version, latest)
     }
   }
 }

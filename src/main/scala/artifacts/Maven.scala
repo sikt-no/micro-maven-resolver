@@ -189,15 +189,19 @@ class Maven(system: RepositorySystem, localRepository: Path) {
       repository: RemoteRepository,
       coordinates: Maven.Coordinates,
       verbose: Boolean): IO[Option[Version]] =
-    OptionT(versions(repository, coordinates, verbose)).subflatMap { versions =>
-      if coordinates.version.isLatest then versions.latest
-      else if coordinates.version.isRelease then versions.release
-      else if (coordinates.version.isSnapshot)
-        versions.snapshot.flatMap(s => s.asVersion(coordinates.version))
-      else {
-        versions.versions.find(v => v == coordinates.version)
+    OptionT(versions(repository, coordinates, verbose))
+      .subflatMap { versions =>
+        if coordinates.version.isLatest then versions.latest
+        else if coordinates.version.isRelease then versions.release
+        else if coordinates.version.isSnapshot then
+          versions.snapshot.flatMap(s => s.asVersion(coordinates.version))
+        else versions.versions.find(v => v == coordinates.version)
       }
-    }.value
+      .flatMapF(x =>
+        if coordinates.version.isLatest && x.isSnapshot then
+          resolveVersion(repository, coordinates.copy(version = x), verbose)
+        else IO.some(x))
+      .value
 
   def resolveUrl(repository: RemoteRepository, coordinates: Maven.Coordinates, verbose: Boolean) =
     OptionT(resolveVersion(repository, coordinates, verbose)).semiflatMap { v =>
