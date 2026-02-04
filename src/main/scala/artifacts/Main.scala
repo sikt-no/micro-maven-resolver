@@ -13,6 +13,7 @@ import fs2.io.file.{Files, Path}
 import io.circe.syntax.*
 import org.eclipse.aether.repository.RemoteRepository
 
+import java.net.URI
 import scala.util.control.NonFatal
 
 enum VersionFormat extends Enum[VersionFormat] {
@@ -71,27 +72,44 @@ private object Options {
     override def defaultMetavar: String = "coordinates"
   }
 
+  given Argument[Maven.Module | Maven.Coordinates] =
+    new Argument[Maven.Module | Maven.Coordinates] {
+      override def read(string: String): ValidatedNel[String, Maven.Module | Maven.Coordinates] = {
+        val module = Argument[Maven.Module].read(string)
+        val coordinates = Argument[Maven.Coordinates].read(string)
+        module.orElse(coordinates)
+      }
+
+      override def defaultMetavar: String = "coordinates"
+    }
+
   val moduleOpt = Opts.argument[Maven.Module]("coordinates")
+  val coordinatesOrModuleOpt = Opts.argument[Maven.Module | Maven.Coordinates]("coordinates")
 
   val coordinatesOpt = Opts.argument[Maven.Coordinates]("coordinates")
 
   val verboseOpts: Opts[Boolean] = Opts.flag("verbose", help = "Log to standard err").orFalse
   val versionsOpts: Opts[IO[Option[Maven.Versions]]] =
-    (repositoryOpt, moduleOpt, verboseOpts).mapN(Maven.versions)
+    (repositoryOpt, coordinatesOrModuleOpt, verboseOpts).mapN((r, c, v) =>
+      Maven.make().flatMap(_.versions(r, c, v)))
 
   val resolveVersionOpt: Opts[IO[Option[Version]]] =
-    (repositoryOpt, coordinatesOpt, verboseOpts).mapN(Maven.resolveVersion)
+    (repositoryOpt, coordinatesOpt, verboseOpts).mapN((r, c, v) =>
+      Maven.make().flatMap(_.resolveVersion(r, c, v)))
   val resolveOpt: Opts[IO[Option[Maven.ResolvedArtifact]]] =
-    (repositoryOpt, coordinatesOpt, verboseOpts).mapN(Maven.resolve)
+    (repositoryOpt, coordinatesOpt, verboseOpts).mapN((r, c, v) =>
+      Maven.make().flatMap(_.resolve(r, c, v)))
+
+  val resolveUrlOpt: Opts[IO[Option[URI]]] =
+    (repositoryOpt, coordinatesOpt, verboseOpts).mapN((r, c, v) =>
+      Maven.make().flatMap(_.resolveUrl(r, c, v)))
   val deployOpt: Opts[IO[Unit]] =
     (
       repositoryOpt,
       coordinatesOpt,
       Opts.argument[java.nio.file.Path]("file").map(Path.fromNioPath),
       verboseOpts)
-      .mapN(
-        Maven.deploy
-      )
+      .mapN((r, c, f, v) => Maven.make().flatMap(_.deploy(r, c, f, v)))
 }
 
 object Main
@@ -176,6 +194,16 @@ object Main
         } yield ()
       }
 
+  private def runResolveUrl(action: IO[Option[URI]]): IO[Unit] =
+    action
+      .flatMap { maybeResolved =>
+        for {
+          resolved <- IO.fromOption(maybeResolved)(
+            new RuntimeException("Unable to download dependency"))
+          _ <- IO.println(resolved)
+        } yield ()
+      }
+
   private def runResolveVersion(action: IO[Option[Version]]): IO[Unit] =
     action
       .flatMap { maybeResolved =>
@@ -207,6 +235,12 @@ object Main
           .map(runResolveVersion)
           .map(runIO)
       ),
+      Command(
+        "resolve-url",
+        "Resolve the url to the artifact\nCoordinates are expected as <groupId>:<artifactId>[:<extension>[:<classifier>]]:<version>")(
+        Options.resolveUrlOpt
+          .map(runResolveUrl)
+          .map(runIO)),
       Command(
         "resolve",
         "Resolve the artifact\nCoordinates are expected as <groupId>:<artifactId>[:<extension>[:<classifier>]]:<version>")(
