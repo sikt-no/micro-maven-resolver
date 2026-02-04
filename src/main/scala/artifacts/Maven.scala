@@ -300,15 +300,9 @@ class Maven(system: RepositorySystem, localRepository: Path) {
                xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
         <modelVersion>4.0.0</modelVersion>
 
-        <groupId>
-          {coordinates.module.groupId}
-        </groupId>
-        <artifactId>
-          {coordinates.module.artifactId}
-        </artifactId>
-        <version>
-          {coordinates.version}
-        </version>
+        <groupId>{coordinates.module.groupId}</groupId>
+        <artifactId>{coordinates.module.artifactId}</artifactId>
+        <version>{coordinates.version}</version>
         <packaging>pom</packaging>
       </project>
     val path = tempDir / "pom.xml"
