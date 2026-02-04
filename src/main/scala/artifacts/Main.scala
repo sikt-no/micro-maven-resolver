@@ -89,21 +89,22 @@ private object Options {
 
   val verboseOpts: Opts[Boolean] = Opts.flag("verbose", help = "Log to standard err").orFalse
   val versionsOpts: Opts[IO[Option[Maven.Versions]]] =
-    (repositoryOpt, coordinatesOrModuleOpt, verboseOpts).mapN(Maven.versions)
+    (repositoryOpt, coordinatesOrModuleOpt, verboseOpts).mapN((r, c, v) =>
+      Maven.make().flatMap(_.versions(r, c, v)))
 
   val resolveVersionOpt: Opts[IO[Option[Version]]] =
-    (repositoryOpt, coordinatesOpt, verboseOpts).mapN(Maven.resolveVersion)
+    (repositoryOpt, coordinatesOpt, verboseOpts).mapN((r, c, v) =>
+      Maven.make().flatMap(_.resolveVersion(r, c, v)))
   val resolveOpt: Opts[IO[Option[Maven.ResolvedArtifact]]] =
-    (repositoryOpt, coordinatesOpt, verboseOpts).mapN(Maven.resolve)
+    (repositoryOpt, coordinatesOpt, verboseOpts).mapN((r, c, v) =>
+      Maven.make().flatMap(_.resolve(r, c, v)))
   val deployOpt: Opts[IO[Unit]] =
     (
       repositoryOpt,
       coordinatesOpt,
       Opts.argument[java.nio.file.Path]("file").map(Path.fromNioPath),
       verboseOpts)
-      .mapN(
-        Maven.deploy
-      )
+      .mapN((r, c, f, v) => Maven.make().flatMap(_.deploy(r, c, f, v)))
 }
 
 object Main

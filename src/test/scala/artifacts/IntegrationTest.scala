@@ -8,8 +8,12 @@ import fs2.io.file.Path
 import munit.{AnyFixture, CatsEffectSuite}
 
 import java.net.ServerSocket
+import scala.concurrent.duration.Duration
+import scala.concurrent.duration.*
 
 class IntegrationTest extends CatsEffectSuite {
+  override def munitIOTimeout: Duration = 30.hours
+
   val mavenRepo = ResourceSuiteLocalFixture(
     "maven",
     for {
@@ -17,26 +21,29 @@ class IntegrationTest extends CatsEffectSuite {
       repo <- Resource.make(IntegrationTest.makeRepo(temp))(repo => IO.blocking(repo.shutdown()))
     } yield repo
   )
+  val tempLocal = ResourceFunFixture(fs2.io.file.Files[IO].tempDirectory)
 
   override val munitFixtures: Seq[AnyFixture[?]] = List(
     mavenRepo
   )
 
-  test("deploy") {
+  tempLocal.test("deploy") { (tmp: Path) =>
     val repo = mavenRepo()
+
     val repository = Maven.repositoryFor(
       s"http://localhost:${repo.getParameters.getPort}/releases",
       Some((username = "admin", password = "token")))
     val coordinates = Maven.Coordinates.parse("com.example:example:scala:sources:0.1.0").get
 
     val action = for {
-      _ <- Maven.deploy(
+      maven <- Maven.make(tmp)
+      _ <- maven.deploy(
         repository,
         coordinates,
         Path.apply("project.scala"),
         verbose = false
       )
-      versions <- Maven.versions(repository, coordinates, verbose = false)
+      versions <- maven.versions(repository, coordinates, verbose = false)
     } yield versions
     action.assertEquals(
       Some(
@@ -51,7 +58,7 @@ class IntegrationTest extends CatsEffectSuite {
       ))
   }
 
-  test("deploy-snapshot") {
+  tempLocal.test("deploy-snapshot") { (tmp: Path) =>
     val repo = mavenRepo()
     val repository = Maven.repositoryFor(
       s"http://localhost:${repo.getParameters.getPort}/snapshots",
@@ -60,28 +67,29 @@ class IntegrationTest extends CatsEffectSuite {
       Maven.Coordinates.parse("com.example:example:scala:sources:0.1.0-SNAPSHOT").get
 
     val action = for {
-      _ <- Maven.deploy(
+      maven <- Maven.make(tmp)
+      _ <- maven.deploy(
         repository,
         coordinates,
         Path.apply("project.scala"),
         verbose = false
       )
-      versions <- Maven.versions(repository, coordinates, verbose = false)
-      resolvedVersion <- Maven.resolveVersion(repository, coordinates, verbose = false)
-      /*latest <- Maven.resolveVersion(
+      versions <- maven.versions(repository, coordinates, verbose = false)
+      resolvedVersion <- maven.resolveVersion(repository, coordinates, verbose = false)
+      latest <- maven.resolveVersion(
         repository,
         coordinates.copy(version = Version.Latest),
-        verbose = false)*/
-      release <- Maven.resolveVersion(
+        verbose = false)
+      release <- maven.resolveVersion(
         repository,
         coordinates.copy(version = Version.Release),
         verbose = false)
-    } yield (resolvedVersion, release, versions)
-    action.map { (version, release, versions) =>
+    } yield (resolvedVersion, latest, release, versions)
+    action.map { (version, latest, release, versions) =>
       assertNotEquals(version.get, coordinates.version)
       assertEquals(version, versions.get.snapshot.get.asVersion(coordinates.version))
       assert(release.isEmpty)
-      // assertEquals(version, latest)
+      assertEquals(Some(coordinates.version), latest)
     }
   }
 }

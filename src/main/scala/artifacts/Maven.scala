@@ -5,6 +5,7 @@ import cats.effect.*
 import cats.implicits.catsSyntaxOptionId
 import fs2.io.file.{Files, Path}
 import io.circe.Codec
+import org.apache.maven.artifact.repository.metadata.Versioning
 import org.apache.maven.artifact.repository.metadata.io.xpp3.MetadataXpp3Reader
 import org.eclipse.aether.*
 import org.eclipse.aether.artifact.DefaultArtifact
@@ -12,17 +13,11 @@ import org.eclipse.aether.deployment.DeployRequest
 import org.eclipse.aether.metadata.DefaultMetadata
 import org.eclipse.aether.metadata.Metadata.Nature
 import org.eclipse.aether.repository.{LocalRepository, RemoteRepository}
-import org.eclipse.aether.resolution.{
-  ArtifactDescriptorRequest,
-  ArtifactRequest,
-  MetadataRequest,
-  VersionRequest
-}
+import org.eclipse.aether.resolution.{ArtifactDescriptorRequest, ArtifactRequest, MetadataRequest}
 import org.eclipse.aether.supplier.RepositorySystemSupplier
 import org.eclipse.aether.util.artifact.SubArtifact
 import org.eclipse.aether.util.repository.AuthenticationBuilder
 
-import java.io.{File, IOException}
 import scala.jdk.CollectionConverters.*
 import scala.util.Properties
 import scala.xml.XML
@@ -117,7 +112,12 @@ object Maven {
 
   val localRepository = Path(s"${Properties.userHome}/.m2/repository")
 
-  def newSession(system: RepositorySystem, localRepository: Path, verbose: Boolean) = IO
+  def make(localRepository: Path = Maven.localRepository): IO[Maven] =
+    system.modify(system => system -> new Maven(system, localRepository))
+}
+
+class Maven(system: RepositorySystem, localRepository: Path) {
+  def newSession(verbose: Boolean) = IO
     .blocking {
       val s = new DefaultRepositorySystemSession()
       if (verbose) {
@@ -131,29 +131,23 @@ object Maven {
 
   def versions(
       repository: RemoteRepository,
-      moduleOrCoordinates: Module | Coordinates,
+      moduleOrCoordinates: Maven.Module | Maven.Coordinates,
       verbose: Boolean) = {
-    val (module, version, classifier, extension) = moduleOrCoordinates match {
-      case m: Module => (m, None, None, None)
-      case Coordinates(m, v, c, e) => (m, Some(v), c, e)
+    val (module, version) = moduleOrCoordinates match {
+      case m: Maven.Module => (m, None)
+      case Maven.Coordinates(m, v, _, _) => (m, Some(v))
     }
     for {
-      system <- system.get
-      session <- newSession(system, localRepository, verbose)
+      session <- newSession(verbose)
       response <- IO.blocking {
         val request = (module, version) match {
-          case (Module(gid, aid), Some(version)) if version.isMetaVersion =>
+          case (Maven.Module(gid, aid), Some(version)) if version.isMetaVersion =>
             new MetadataRequest(
-              new DefaultMetadata(
-                gid,
-                aid,
-                version,
-                "maven-metadata.xml",
-                Nature.RELEASE_OR_SNAPSHOT))
-          case (Module(gid, aid), Some(version)) if version.isSnapshot =>
+              new DefaultMetadata(gid, aid, "maven-metadata.xml", Nature.RELEASE_OR_SNAPSHOT))
+          case (Maven.Module(gid, aid), Some(version)) if version.isSnapshot =>
             new MetadataRequest(
               new DefaultMetadata(gid, aid, version, "maven-metadata.xml", Nature.SNAPSHOT))
-          case (Module(gid, aid), _) =>
+          case (Maven.Module(gid, aid), _) =>
             new MetadataRequest(new DefaultMetadata(gid, aid, "maven-metadata.xml", Nature.RELEASE))
         }
         request.setRepository(repository)
@@ -164,54 +158,14 @@ object Maven {
         response
           .map(path => new MetadataXpp3Reader().read(java.nio.file.Files.newInputStream(path)))
           .map(meta => meta.getVersioning)
-          .map { v =>
-            val maybeSnapshot =
-              Option(v.getSnapshot).map(s => Snapshot(s.getTimestamp, s.getBuildNumber))
-            val snapshotVersion =
-              maybeSnapshot.flatMap(snapshot => version.flatMap(v => snapshot.asVersion(v)))
-            val snapshotVersions = Option(v.getSnapshotVersions)
-              .getOrElse(java.util.List.of())
-              .asScala
-              .map(sv =>
-                SnapshotVersion(
-                  Option(sv.getClassifier).filterNot(_.trim.isEmpty).map(Classifier.apply),
-                  Some(sv.getExtension),
-                  Version(sv.getVersion),
-                  sv.getUpdated))
-              .toList
-            val versions = v.getVersions.asScala.map(Version.apply).toList
-            println(versions.mkString("\n"))
-            val latestVersion = versions.lastOption
-            val latestSnapshot =
-              version.flatMap(v =>
-                if v.isLatest then
-                  snapshotVersions
-                    .sortBy(_.updated)(using summon[Ordering[String]].reverse)
-                    .find(sn => sn.extension == extension && sn.classifier == classifier)
-                    .map(sn => sn.version)
-                else None)
-            val latest = Option(v.getLatest)
-              .orElse(Option(v.getRelease))
-              .map(Version.apply)
-              .orElse(snapshotVersion)
-              .orElse(latestVersion)
-
-            Versions(
-              module,
-              latest,
-              Option(v.getRelease).map(Version.apply),
-              versions.reverse,
-              maybeSnapshot,
-              snapshotVersions
-            )
-          }
+          .map(convertVersioning(moduleOrCoordinates, _))
       }
     } yield parsed
   }
 
   def resolveVersion(
       repository: RemoteRepository,
-      coordinates: Coordinates,
+      coordinates: Maven.Coordinates,
       verbose: Boolean): IO[Option[Version]] =
     OptionT(versions(repository, coordinates, verbose)).subflatMap { versions =>
       if coordinates.version.isLatest then versions.latest
@@ -225,12 +179,11 @@ object Maven {
 
   def resolve(
       repository: RemoteRepository,
-      coordinates: Coordinates,
+      coordinates: Maven.Coordinates,
       verbose: Boolean
   ) =
     for {
-      system <- system.get
-      session <- newSession(system, localRepository, verbose)
+      session <- newSession(verbose)
       response <- IO.blocking {
         val request = new ArtifactRequest()
         request.setArtifact(coordinates.toArtifact)
@@ -238,15 +191,15 @@ object Maven {
         system.resolveArtifact(session, request)
       }
     } yield Option.when(response.isResolved)(
-      ResolvedArtifact(coordinates, Path.fromNioPath(response.getArtifact.getFile.toPath)))
+      Maven.ResolvedArtifact(coordinates, Path.fromNioPath(response.getArtifact.getFile.toPath)))
 
   def deploy(
       repository: RemoteRepository,
-      coordinates: Coordinates,
+      coordinates: Maven.Coordinates,
       path: Path,
       verbose: Boolean
   ): IO[Unit] = {
-    def upload(system: RepositorySystem, session: DefaultRepositorySystemSession, pom: Path) =
+    def upload(session: DefaultRepositorySystemSession, pom: Path) =
       IO.blocking {
         val request = new DeployRequest()
         request.setRepository(repository)
@@ -256,7 +209,7 @@ object Maven {
         system.deploy(session, request)
       }
 
-    def doesArtifactExistRemote(system: RepositorySystem, session: DefaultRepositorySystemSession) =
+    def doesArtifactExistRemote(session: DefaultRepositorySystemSession) =
       IO.blocking {
         val request =
           new ArtifactDescriptorRequest(coordinates.toArtifact, java.util.List.of(repository), "")
@@ -265,10 +218,9 @@ object Maven {
       }.recover { case _ => false }
 
     def run(tempDir: Path) = for {
-      system <- system.get
-      session <- newSession(system, localRepository, verbose)
+      session <- newSession(verbose)
       pom <- generatePom(coordinates, tempDir)
-      resolved <- doesArtifactExistRemote(system, session)
+      resolved <- doesArtifactExistRemote(session)
       response <- {
         if (coordinates.version.isMetaVersion) {
           IO.raiseError(
@@ -276,15 +228,16 @@ object Maven {
         } else {
           val snapshot = coordinates.version.isSnapshot
           if (snapshot) {
-            upload(system, session, pom)
+            upload(session, pom)
           } else if (!resolved) {
-            upload(system, session, pom)
+            upload(session, pom)
           } else {
             IO.consoleForIO.errorln(s"${coordinates} already exists in the remote repository")
           }
         }
       }
     } yield ()
+
     val fileExistAndNonEmpty =
       Files[IO].getBasicFileAttributes(path).map(attr => attr.isRegularFile && attr.size > 0)
 
@@ -306,13 +259,66 @@ object Maven {
                xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
         <modelVersion>4.0.0</modelVersion>
 
-        <groupId>{coordinates.module.groupId}</groupId>
-        <artifactId>{coordinates.module.artifactId}</artifactId>
-        <version>{coordinates.version}</version>
+        <groupId>
+          {coordinates.module.groupId}
+        </groupId>
+        <artifactId>
+          {coordinates.module.artifactId}
+        </artifactId>
+        <version>
+          {coordinates.version}
+        </version>
         <packaging>pom</packaging>
       </project>
     val path = tempDir / "pom.xml"
     XML.save(path.toString, xml, xmlDecl = true)
     path
   }
+  private def convertVersioning(
+      moduleOrCoordinates: Maven.Module | Maven.Coordinates,
+      versioning: Versioning) = {
+    val (module, version, classifier, extension) = moduleOrCoordinates match {
+      case m: Maven.Module => (m, None, None, None)
+      case Maven.Coordinates(m, v, c, e) => (m, Some(v), c, e)
+    }
+    val maybeSnapshot =
+      Option(versioning.getSnapshot).map(s => Maven.Snapshot(s.getTimestamp, s.getBuildNumber))
+    val snapshotVersion =
+      maybeSnapshot.flatMap(snapshot => version.flatMap(v => snapshot.asVersion(v)))
+    val snapshotVersions = Option(versioning.getSnapshotVersions)
+      .getOrElse(java.util.List.of())
+      .asScala
+      .map(sv =>
+        Maven.SnapshotVersion(
+          Option(sv.getClassifier).filterNot(_.trim.isEmpty).map(Classifier.apply),
+          Some(sv.getExtension),
+          Version(sv.getVersion),
+          sv.getUpdated))
+      .toList
+    val versions = versioning.getVersions.asScala.map(Version.apply).toList
+    val latestVersion = versions.lastOption
+    val latestSnapshot =
+      version.flatMap(v =>
+        if v.isLatest then
+          snapshotVersions
+            .sortBy(_.updated)(using summon[Ordering[String]].reverse)
+            .find(sn => sn.extension == extension && sn.classifier == classifier)
+            .map(sn => sn.version)
+        else None)
+    val latest = Option(versioning.getLatest)
+      .orElse(Option(versioning.getRelease))
+      .map(Version.apply)
+      .orElse(snapshotVersion)
+      .orElse(latestVersion)
+
+    Maven.Versions(
+      module,
+      latest,
+      Option(versioning.getRelease).map(Version.apply),
+      versions.reverse,
+      maybeSnapshot,
+      snapshotVersions
+    )
+  }
+
 }
