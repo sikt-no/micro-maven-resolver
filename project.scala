@@ -1,4 +1,4 @@
-//> using scala "3.7"
+//> using scala "3.8"
 //> using buildInfo
 //> using computeVersion "git:dynver"
 //> using repository "https://maven.reposilite.com/releases/"

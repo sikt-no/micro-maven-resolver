@@ -13,6 +13,7 @@ import fs2.io.file.{Files, Path}
 import io.circe.syntax.*
 import org.eclipse.aether.repository.RemoteRepository
 
+import java.net.URI
 import scala.util.control.NonFatal
 
 enum VersionFormat extends Enum[VersionFormat] {
@@ -98,6 +99,10 @@ private object Options {
   val resolveOpt: Opts[IO[Option[Maven.ResolvedArtifact]]] =
     (repositoryOpt, coordinatesOpt, verboseOpts).mapN((r, c, v) =>
       Maven.make().flatMap(_.resolve(r, c, v)))
+
+  val resolveUrlOpt: Opts[IO[Option[URI]]] =
+    (repositoryOpt, coordinatesOpt, verboseOpts).mapN((r, c, v) =>
+      Maven.make().flatMap(_.resolveUrl(r, c, v)))
   val deployOpt: Opts[IO[Unit]] =
     (
       repositoryOpt,
@@ -189,6 +194,16 @@ object Main
         } yield ()
       }
 
+  private def runResolveUrl(action: IO[Option[URI]]): IO[Unit] =
+    action
+      .flatMap { maybeResolved =>
+        for {
+          resolved <- IO.fromOption(maybeResolved)(
+            new RuntimeException("Unable to download dependency"))
+          _ <- IO.println(resolved)
+        } yield ()
+      }
+
   private def runResolveVersion(action: IO[Option[Version]]): IO[Unit] =
     action
       .flatMap { maybeResolved =>
@@ -220,6 +235,12 @@ object Main
           .map(runResolveVersion)
           .map(runIO)
       ),
+      Command(
+        "resolve-url",
+        "Resolve the url to the artifact\nCoordinates are expected as <groupId>:<artifactId>[:<extension>[:<classifier>]]:<version>")(
+        Options.resolveUrlOpt
+          .map(runResolveUrl)
+          .map(runIO)),
       Command(
         "resolve",
         "Resolve the artifact\nCoordinates are expected as <groupId>:<artifactId>[:<extension>[:<classifier>]]:<version>")(

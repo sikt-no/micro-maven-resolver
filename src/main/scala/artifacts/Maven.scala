@@ -10,6 +10,14 @@ import org.apache.maven.artifact.repository.metadata.io.xpp3.MetadataXpp3Reader
 import org.eclipse.aether.*
 import org.eclipse.aether.artifact.DefaultArtifact
 import org.eclipse.aether.deployment.DeployRequest
+import org.eclipse.aether.internal.impl.Maven2RepositoryLayoutFactory
+import org.eclipse.aether.internal.impl.checksum.{
+  DefaultChecksumAlgorithmFactorySelector,
+  Md5ChecksumAlgorithmFactory,
+  Sha1ChecksumAlgorithmFactory,
+  Sha256ChecksumAlgorithmFactory,
+  Sha512ChecksumAlgorithmFactory
+}
 import org.eclipse.aether.metadata.DefaultMetadata
 import org.eclipse.aether.metadata.Metadata.Nature
 import org.eclipse.aether.repository.{LocalRepository, RemoteRepository}
@@ -117,6 +125,20 @@ object Maven {
 }
 
 class Maven(system: RepositorySystem, localRepository: Path) {
+  private val layoutFactory = Maven2RepositoryLayoutFactory(
+    DefaultChecksumAlgorithmFactorySelector(
+      java.util.Map.of(
+        Sha512ChecksumAlgorithmFactory.NAME,
+        Sha512ChecksumAlgorithmFactory(),
+        Sha256ChecksumAlgorithmFactory.NAME,
+        Sha256ChecksumAlgorithmFactory(),
+        Sha1ChecksumAlgorithmFactory.NAME,
+        Sha1ChecksumAlgorithmFactory(),
+        Md5ChecksumAlgorithmFactory.NAME,
+        Md5ChecksumAlgorithmFactory()
+      )
+    ))
+
   def newSession(verbose: Boolean) = IO
     .blocking {
       val s = new DefaultRepositorySystemSession()
@@ -175,6 +197,25 @@ class Maven(system: RepositorySystem, localRepository: Path) {
       else {
         versions.versions.find(v => v == coordinates.version)
       }
+    }.value
+
+  def resolveUrl(repository: RemoteRepository, coordinates: Maven.Coordinates, verbose: Boolean) =
+    OptionT(resolveVersion(repository, coordinates, verbose)).semiflatMap { v =>
+      val newCoords = coordinates.copy(version = v)
+      for {
+        session <- newSession(verbose)
+        url <- IO.blocking {
+          val layout = layoutFactory.newInstance(session, repository)
+          val baseUrl = {
+            val url =
+              if repository.getUrl.endsWith("/") then repository.getUrl
+              else repository.getUrl + "/";
+            java.net.URI.create(url)
+          }
+          val artifactUrl = layout.getLocation(newCoords.toArtifact, false)
+          baseUrl.resolve(artifactUrl)
+        }
+      } yield url
     }.value
 
   def resolve(
