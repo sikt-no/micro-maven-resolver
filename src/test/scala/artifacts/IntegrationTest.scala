@@ -8,12 +8,12 @@ import fs2.io.file.Path
 import munit.{AnyFixture, CatsEffectSuite}
 
 import java.net.ServerSocket
+import java.time.Instant
+import java.time.temporal.ChronoUnit
 import scala.concurrent.duration.Duration
 import scala.concurrent.duration.*
 
 class IntegrationTest extends CatsEffectSuite {
-  override def munitIOTimeout: Duration = 30.hours
-
   val mavenRepo = ResourceSuiteLocalFixture(
     "maven",
     for {
@@ -108,15 +108,15 @@ object IntegrationTest {
         params.setTestEnv(true)
         params.setLocalConfigurationPath((tempDir / "local").toNioPath)
         params.setTokens(
-          java.util.List.of(
-            new CreateAccessTokenRequest(
-              AccessTokenType.TEMPORARY,
-              "admin",
-              SecretType.RAW,
-              "token",
-              java.util.Set.of(AccessTokenPermission.MANAGER),
-              java.util.Set.of()
-            )))
+          java.util.List.of(new CreateAccessTokenRequest(
+            AccessTokenType.TEMPORARY,
+            "admin",
+            SecretType.RAW,
+            "token",
+            java.util.Set.of(AccessTokenPermission.MANAGER),
+            java.util.Set.of(),
+            Instant.now().plus(5, ChronoUnit.HOURS)
+          )))
         val repo = ReposiliteFactory.INSTANCE.createReposilite(params)
         repo.launch().fold(IO.pure, IO.raiseError)
       }.flatten)
