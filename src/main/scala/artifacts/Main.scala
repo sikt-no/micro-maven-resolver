@@ -11,9 +11,9 @@ import de.vandermeer.asciitable.AsciiTable
 import de.vandermeer.skb.interfaces.transformers.textformat.TextAlignment
 import fs2.io.file.{Files, Path}
 import io.circe.syntax.*
-import org.eclipse.aether.repository.RemoteRepository
 
 import java.net.URI
+import scala.util.Try
 import scala.util.control.NonFatal
 
 enum VersionFormat extends Enum[VersionFormat] {
@@ -46,6 +46,11 @@ private object Options {
       .env[String]("MAVEN_REPOSITORY", help = "Lookup in which repository")
       .withDefault("https://repo1.maven.org/maven2")
 
+  val localRepository =
+    Opts
+      .env[Path]("MAVEN_LOCAL_REPOSITORY", help = "Local repository")
+      .withDefault(Maven.localRepository)
+
   val repositoryOpt =
     (repositoryNameOpt, usernamePasswordOpt)
       .mapN(Maven.repositoryFor)
@@ -59,6 +64,13 @@ private object Options {
       }
 
     override def defaultMetavar: String = "coordinates"
+  }
+
+  given Argument[Path] = new Argument[Path] {
+    override def read(string: String): ValidatedNel[String, Path] =
+      Try(Path(string)).toEither.left.map(_.getMessage).toValidatedNel
+
+    override def defaultMetavar: String = "path"
   }
 
   given Argument[Maven.Coordinates] = new Argument[Maven.Coordinates] {
@@ -90,26 +102,27 @@ private object Options {
 
   val verboseOpts: Opts[Boolean] = Opts.flag("verbose", help = "Log to standard err").orFalse
   val versionsOpts: Opts[IO[Option[Maven.Versions]]] =
-    (repositoryOpt, coordinatesOrModuleOpt, verboseOpts).mapN((r, c, v) =>
-      Maven.make().flatMap(_.versions(r, c, v)))
+    (localRepository, repositoryOpt, coordinatesOrModuleOpt, verboseOpts).mapN((l, r, c, v) =>
+      Maven.make(localRepository = l).flatMap(_.versions(r, c, v)))
 
   val resolveVersionOpt: Opts[IO[Option[Version]]] =
-    (repositoryOpt, coordinatesOpt, verboseOpts).mapN((r, c, v) =>
-      Maven.make().flatMap(_.resolveVersion(r, c, v)))
+    (localRepository, repositoryOpt, coordinatesOpt, verboseOpts).mapN((l, r, c, v) =>
+      Maven.make(localRepository = l).flatMap(_.resolveVersion(r, c, v)))
   val resolveOpt: Opts[IO[Option[Maven.ResolvedArtifact]]] =
-    (repositoryOpt, coordinatesOpt, verboseOpts).mapN((r, c, v) =>
-      Maven.make().flatMap(_.resolve(r, c, v)))
+    (localRepository, repositoryOpt, coordinatesOpt, verboseOpts).mapN((l, r, c, v) =>
+      Maven.make(localRepository = l).flatMap(_.resolve(r, c, v)))
 
   val resolveUrlOpt: Opts[IO[Option[URI]]] =
-    (repositoryOpt, coordinatesOpt, verboseOpts).mapN((r, c, v) =>
-      Maven.make().flatMap(_.resolveUrl(r, c, v)))
+    (localRepository, repositoryOpt, coordinatesOpt, verboseOpts).mapN((l, r, c, v) =>
+      Maven.make(localRepository = l).flatMap(_.resolveUrl(r, c, v)))
   val deployOpt: Opts[IO[Unit]] =
     (
+      localRepository,
       repositoryOpt,
       coordinatesOpt,
       Opts.argument[java.nio.file.Path]("file").map(Path.fromNioPath),
       verboseOpts)
-      .mapN((r, c, f, v) => Maven.make().flatMap(_.deploy(r, c, f, v)))
+      .mapN((l, r, c, f, v) => Maven.make(localRepository = l).flatMap(_.deploy(r, c, f, v)))
 }
 
 object Main
