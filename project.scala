@@ -3,6 +3,7 @@
 //> using computeVersion "git:dynver"
 //> using repository "https://maven.reposilite.com/releases/"
 //> using options -Werror -deprecation
+//> using resourceDir src/main/resources
 //> using dep "org.typelevel::cats-effect:3.7.0"
 //> using dep "com.monovore::decline-effect:2.6.2"
 //> using dep "de.vandermeer:asciitable:0.3.2"

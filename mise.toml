@@ -1,5 +1,7 @@
 [tools]
+coursier = { version = "latest", exe = "cs" }
 scala = "latest"
+java = "21"
 
 [env]
 _.file = ".env.local"
@@ -27,7 +29,7 @@ run = [
 [tasks.build-native-image]
 run = [
     "mkdir -p target",
-    "scala --power package --native-image --graalvm-jvm-id graalvm-community@25 -o target/micro-maven-resolver . -- --no-fallback --strict-image-heap"
+    "scala --power package --native-image --graalvm-jvm-id graalvm-community@21 -o target/micro-maven-resolver -f . -- --no-fallback --strict-image-heap"
 ]
 
 [tasks.clean]
