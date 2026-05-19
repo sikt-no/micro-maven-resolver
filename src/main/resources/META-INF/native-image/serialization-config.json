@@ -10,5 +10,8 @@
     },
     {
         "name": "java.util.HashMap"
+    },
+    {
+        "name": "java.lang.String"
     }
 ]
