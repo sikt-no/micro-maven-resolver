@@ -52,12 +52,12 @@ jobs:
           echo "version=$version" >> $GITHUB_OUTPUT
       - name: Build native image
         run: |
-          mkdir -p target
+          mkdir -p target/${{matrix.platform}}
           scala-cli package --server=false --native-image --graalvm-jvm-id graalvm-community@25 -o target/${{matrix.platform}}/micro-maven-resolver . -- --no-fallback --strict-image-heap
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
-          name: ${{matrix.platform}}/micro-maven-resolver-${{steps.get_version.outputs.version}}
+          name: ${{matrix.platform}}-${{steps.get_version.outputs.version}}/micro-maven-resolver
           path: target/${{matrix.platform}}/micro-maven-resolver
 
   publish:
