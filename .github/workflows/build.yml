@@ -28,13 +28,17 @@ jobs:
 
     runs-on: ${{matrix.os}}
     steps:
-      - uses: actions/checkout@v6
+      - name: Set short Coursier cache path on Windows
+        run: echo "COURSIER_CACHE=C:\cv" >> $env:GITHUB_ENV
+        shell: pwsh
+        if: ${{matrix.os == 'windows-latest'}}
+      - uses: actions/checkout@v7
       - uses: coursier/cache-action@v8
       - uses: VirtusLab/scala-cli-setup@main
         with:
           scala-cli-version: "latest"
           power: 'true'
-          jvm: 'graalvm-community@21'
+          jvm: 'graalvm-community@25'
       - run: scala-cli test --server=false .
       - id: get_version
         shell: bash
@@ -50,7 +54,7 @@ jobs:
       - name: Build native image
         run: |
           mkdir -p target
-          scala-cli package --server=false --native-image --graalvm-jvm-id graalvm-community@21 -o target/micro-maven-resolver-${{matrix.platform}} . -- --no-fallback --strict-image-heap
+          scala-cli package --server=false --native-image --graalvm-jvm-id graalvm-community@25 -o target/micro-maven-resolver-${{matrix.platform}} . -- --no-fallback
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
