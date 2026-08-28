@@ -115,7 +115,8 @@ object IntegrationTest {
             "token",
             java.util.Set.of(AccessTokenPermission.MANAGER),
             java.util.Set.of(),
-            Instant.now().plus(5, ChronoUnit.HOURS)
+            Instant.now().plus(5, ChronoUnit.HOURS),
+            "admin token"
           )))
         val repo = ReposiliteFactory.INSTANCE.createReposilite(params)
         repo.launch().fold(IO.pure, IO.raiseError)
