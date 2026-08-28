@@ -54,7 +54,7 @@ jobs:
       - name: Build native image
         run: |
           mkdir -p target
-          scala-cli package --server=false --native-image --graalvm-jvm-id graalvm-community@25 -o target/micro-maven-resolver-${{matrix.platform}} . -- --no-fallback --strict-image-heap
+          scala-cli package --server=false --native-image --graalvm-jvm-id graalvm-community@25 -o target/micro-maven-resolver-${{matrix.platform}} . -- --no-fallback
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
         with:
