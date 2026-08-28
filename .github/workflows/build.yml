@@ -28,9 +28,8 @@ jobs:
 
     runs-on: ${{matrix.os}}
     steps:
-      - name: is long path enabled
-        run: |
-          (Get-ItemProperty "HKLM:System\CurrentControlSet\Control\FileSystem").LongPathsEnabled
+      - name: Set short Coursier cache path on Windows
+        run: echo "COURSIER_CACHE=C:\cv" >> $env:GITHUB_ENV
         shell: pwsh
         if: ${{matrix.os == 'windows-latest'}}
       - uses: actions/checkout@v7
