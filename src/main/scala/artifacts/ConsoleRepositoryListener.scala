@@ -27,10 +27,10 @@ object ConsoleRepositoryListener extends AbstractRepositoryListener {
       "Downloading artifact " + event.getArtifact + " from " + event.getRepository)
 
   override def artifactInstalled(event: RepositoryEvent) =
-    Console.err.println("Installed " + event.getArtifact + " to " + event.getFile)
+    Console.err.println("Installed " + event.getArtifact + " to " + event.getPath)
 
   override def artifactInstalling(event: RepositoryEvent) =
-    Console.err.println("Installing " + event.getArtifact + " to " + event.getFile)
+    Console.err.println("Installing " + event.getArtifact + " to " + event.getPath)
 
   override def artifactResolved(event: RepositoryEvent) =
     Console.err.println("Resolved artifact " + event.getArtifact + " from " + event.getRepository)
@@ -52,10 +52,10 @@ object ConsoleRepositoryListener extends AbstractRepositoryListener {
       "Downloading metadata " + event.getMetadata + " from " + event.getRepository)
 
   override def metadataInstalled(event: RepositoryEvent) =
-    Console.err.println("Installed " + event.getMetadata + " to " + event.getFile)
+    Console.err.println("Installed " + event.getMetadata + " to " + event.getPath)
 
   override def metadataInstalling(event: RepositoryEvent) =
-    Console.err.println("Installing " + event.getMetadata + " to " + event.getFile)
+    Console.err.println("Installing " + event.getMetadata + " to " + event.getPath)
 
   override def metadataInvalid(event: RepositoryEvent) =
     Console.err.println("Invalid metadata " + event.getMetadata)

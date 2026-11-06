@@ -10,7 +10,10 @@ import org.apache.maven.artifact.repository.metadata.io.xpp3.MetadataXpp3Reader
 import org.eclipse.aether.*
 import org.eclipse.aether.artifact.DefaultArtifact
 import org.eclipse.aether.deployment.DeployRequest
-import org.eclipse.aether.internal.impl.Maven2RepositoryLayoutFactory
+import org.eclipse.aether.internal.impl.{
+  DefaultArtifactPredicateFactory,
+  Maven2RepositoryLayoutFactory
+}
 import org.eclipse.aether.internal.impl.checksum.{
   DefaultChecksumAlgorithmFactorySelector,
   Md5ChecksumAlgorithmFactory,
@@ -125,30 +128,32 @@ object Maven {
 }
 
 class Maven(system: RepositorySystem, localRepository: Path) {
+  private val checksumSelector = DefaultChecksumAlgorithmFactorySelector(
+    java.util.Map.of(
+      Sha512ChecksumAlgorithmFactory.NAME,
+      Sha512ChecksumAlgorithmFactory(),
+      Sha256ChecksumAlgorithmFactory.NAME,
+      Sha256ChecksumAlgorithmFactory(),
+      Sha1ChecksumAlgorithmFactory.NAME,
+      Sha1ChecksumAlgorithmFactory(),
+      Md5ChecksumAlgorithmFactory.NAME,
+      Md5ChecksumAlgorithmFactory()
+    )
+  )
   private val layoutFactory = Maven2RepositoryLayoutFactory(
-    DefaultChecksumAlgorithmFactorySelector(
-      java.util.Map.of(
-        Sha512ChecksumAlgorithmFactory.NAME,
-        Sha512ChecksumAlgorithmFactory(),
-        Sha256ChecksumAlgorithmFactory.NAME,
-        Sha256ChecksumAlgorithmFactory(),
-        Sha1ChecksumAlgorithmFactory.NAME,
-        Sha1ChecksumAlgorithmFactory(),
-        Md5ChecksumAlgorithmFactory.NAME,
-        Md5ChecksumAlgorithmFactory()
-      )
-    ))
+    checksumSelector,
+    new DefaultArtifactPredicateFactory(checksumSelector)
+  )
 
   def newSession(verbose: Boolean) = IO
     .blocking {
-      val s = new DefaultRepositorySystemSession()
+      val s = system.createSessionBuilder()
       if (verbose) {
         s.setRepositoryListener(ConsoleRepositoryListener)
         s.setTransferListener(new ConsoleTransferListener)
       }
-      s.setLocalRepositoryManager(
-        system.newLocalRepositoryManager(s, new LocalRepository(localRepository.toNioPath.toFile)))
-      s
+      s.withLocalRepositories(new LocalRepository(localRepository.toNioPath))
+      s.build()
     }
 
   def versions(
@@ -174,7 +179,7 @@ class Maven(system: RepositorySystem, localRepository: Path) {
         }
         request.setRepository(repository)
         val resolved = system.resolveMetadata(session, java.util.List.of(request))
-        resolved.asScala.headOption.flatMap(r => Option(r.getMetadata).map(_.getFile.toPath))
+        resolved.asScala.headOption.flatMap(r => Option(r.getMetadata).map(_.getPath))
       }
       parsed <- IO.blocking {
         response
@@ -236,7 +241,7 @@ class Maven(system: RepositorySystem, localRepository: Path) {
         system.resolveArtifact(session, request)
       }
     } yield Option.when(response.isResolved)(
-      Maven.ResolvedArtifact(coordinates, Path.fromNioPath(response.getArtifact.getFile.toPath)))
+      Maven.ResolvedArtifact(coordinates, Path.fromNioPath(response.getArtifact.getPath)))
 
   def deploy(
       repository: RemoteRepository,
@@ -244,17 +249,17 @@ class Maven(system: RepositorySystem, localRepository: Path) {
       path: Path,
       verbose: Boolean
   ): IO[Unit] = {
-    def upload(session: DefaultRepositorySystemSession, pom: Path) =
+    def upload(session: RepositorySystemSession, pom: Path) =
       IO.blocking {
         val request = new DeployRequest()
         request.setRepository(repository)
-        val artifact = coordinates.toArtifact.setFile(path.toNioPath.toFile)
-        val pomArtifact = new SubArtifact(artifact, null, "pom", pom.toNioPath.toFile)
+        val artifact = coordinates.toArtifact.setPath(path.toNioPath)
+        val pomArtifact = new SubArtifact(artifact, null, "pom", pom.toNioPath)
         request.setArtifacts(java.util.List.of(artifact, pomArtifact))
         system.deploy(session, request)
       }
 
-    def doesArtifactExistRemote(session: DefaultRepositorySystemSession) =
+    def doesArtifactExistRemote(session: RepositorySystemSession) =
       IO.blocking {
         val request =
           new ArtifactDescriptorRequest(coordinates.toArtifact, java.util.List.of(repository), "")
