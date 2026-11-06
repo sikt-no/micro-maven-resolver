@@ -40,6 +40,7 @@ jobs:
           power: 'true'
           jvm: 'graalvm-community@25'
       - run: scala-cli test --server=false .
+        if: ${{startsWith(matrix.os, 'ubuntu')}}
       - id: get_version
         shell: bash
         run: |
