@@ -12,7 +12,7 @@ class ConsoleTransferListener extends AbstractTransferListener {
 
   private var lastLength: Int = 0
 
-  override def transferInitiated(event: TransferEvent) = {
+  override def transferInitiated(event: TransferEvent): Unit = {
     val message =
       if (event.getRequestType == TransferEvent.RequestType.PUT) "Uploading" else "Downloading"
 
@@ -20,7 +20,7 @@ class ConsoleTransferListener extends AbstractTransferListener {
       message + ": " + event.getResource.getRepositoryUrl + event.getResource.getResourceName)
   }
 
-  override def transferProgressed(event: TransferEvent) = {
+  override def transferProgressed(event: TransferEvent): Unit = {
     val resource = event.getResource
     downloads.put(resource, event.getTransferredBytes)
 
@@ -41,7 +41,7 @@ class ConsoleTransferListener extends AbstractTransferListener {
     Console.err.print(buffer.toString())
   }
 
-  override def transferSucceeded(event: TransferEvent) = {
+  override def transferSucceeded(event: TransferEvent): Unit = {
     transferCompleted(event);
 
     val resource = event.getResource
@@ -52,7 +52,7 @@ class ConsoleTransferListener extends AbstractTransferListener {
       val len = if (contentLength >= 1024) s"${toKB(contentLength)} KB" else s"${contentLength} B"
 
       var throughput = ""
-      val duration = System.currentTimeMillis() - resource.getTransferStartTime
+      val duration = System.currentTimeMillis() - resource.getStartTime.toEpochMilli
       if (duration > 0) {
         val format = new DecimalFormat("0.0", new DecimalFormatSymbols(Locale.ENGLISH))
         val kbPerSec = (contentLength / 1024.0) / (duration / 1000.0)
@@ -66,13 +66,13 @@ class ConsoleTransferListener extends AbstractTransferListener {
     }
   }
 
-  override def transferFailed(event: TransferEvent) = {
+  override def transferFailed(event: TransferEvent): Unit = {
     transferCompleted(event)
 
     Console.err.println(event.getException.getMessage)
   }
 
-  private def transferCompleted(event: TransferEvent) = {
+  private def transferCompleted(event: TransferEvent): Unit = {
     downloads.remove(event.getResource)
 
     val buffer = new StringBuilder(64)
@@ -81,7 +81,7 @@ class ConsoleTransferListener extends AbstractTransferListener {
     Console.err.println(buffer.toString())
   }
 
-  override def transferCorrupted(event: TransferEvent) =
+  override def transferCorrupted(event: TransferEvent): Unit =
     Console.err.println(event.getException.getMessage)
 
   private def pad(buffer: StringBuilder, spaces: Int) = {
