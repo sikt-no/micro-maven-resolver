@@ -1,87 +1,130 @@
 package artifacts
 
-import cats.effect.IO
-import com.dimafeng.testcontainers.GenericContainer
-import com.dimafeng.testcontainers.munit.TestContainerForEach
+import cats.effect.{IO, Resource}
+import com.reposilite.token.{AccessTokenPermission, AccessTokenType}
+import com.reposilite.token.api.{CreateAccessTokenRequest, SecretType}
+import com.reposilite.{Reposilite, ReposiliteFactory, ReposiliteParameters}
 import fs2.io.file.Path
-import munit.CatsEffectSuite
-import org.testcontainers.containers.wait.strategy.HttpWaitStrategy
+import munit.{AnyFixture, CatsEffectSuite}
 
-class IntegrationTest extends CatsEffectSuite with TestContainerForEach {
+import java.net.ServerSocket
+import java.time.Instant
+import java.time.temporal.ChronoUnit
+import scala.concurrent.duration.Duration
+import scala.concurrent.duration.*
+
+class IntegrationTest extends CatsEffectSuite {
+  val mavenRepo = ResourceSuiteLocalFixture(
+    "maven",
+    for {
+      temp <- fs2.io.file.Files[IO].tempDirectory
+      repo <- Resource.make(IntegrationTest.makeRepo(temp))(repo => IO.blocking(repo.shutdown()))
+    } yield repo
+  )
   val tempLocal = ResourceFunFixture(fs2.io.file.Files[IO].tempDirectory)
 
-  override val containerDef: GenericContainer.Def[GenericContainer] =
-    GenericContainer.Def(
-      dockerImage = "dzikoysk/reposilite:3.5.26",
-      env = Map("REPOSILITE_OPTS" -> "--port 9999 --token admin:token"),
-      exposedPorts = Seq(9999),
-      waitStrategy = new HttpWaitStrategy().forPort(9999).forPath("/")
-    )
+  override val munitFixtures: Seq[AnyFixture[?]] = List(
+    mavenRepo
+  )
 
   tempLocal.test("deploy") { (tmp: Path) =>
-    withContainers { (c: Containers) =>
-      val repository = Maven.repositoryFor(
-        s"http://${c.host}:${c.firstMappedPort}/releases",
-        Some((username = "admin", password = "token")))
-      val coordinates = Maven.Coordinates.parse("com.example:example:scala:sources:0.1.0").get
+    val repo = mavenRepo()
 
-      val action = for {
-        maven <- Maven.make(tmp)
-        _ <- maven.deploy(
-          repository,
-          coordinates,
-          Path.apply("project.scala"),
-          verbose = false
-        )
-        versions <- maven.versions(repository, coordinates, verbose = false)
-      } yield versions
-      action.assertEquals(
-        Some(
-          Maven
-            .Versions(
-              coordinates.module,
-              Some(Version("0.1.0")),
-              Some(Version("0.1.0")),
-              List(Version("0.1.0")),
-              None,
-              Nil)
-        ))
-    }
+    val repository = Maven.repositoryFor(
+      s"http://localhost:${repo.getParameters.getPort}/releases",
+      Some((username = "admin", password = "token")))
+    val coordinates = Maven.Coordinates.parse("com.example:example:scala:sources:0.1.0").get
+
+    val action = for {
+      maven <- Maven.make(tmp)
+      _ <- maven.deploy(
+        repository,
+        coordinates,
+        Path.apply("project.scala"),
+        verbose = false
+      )
+      versions <- maven.versions(repository, coordinates, verbose = false)
+    } yield versions
+    action.assertEquals(
+      Some(
+        Maven
+          .Versions(
+            coordinates.module,
+            Some(Version("0.1.0")),
+            Some(Version("0.1.0")),
+            List(Version("0.1.0")),
+            None,
+            Nil)
+      ))
   }
 
   tempLocal.test("deploy-snapshot") { (tmp: Path) =>
-    withContainers { (c: Containers) =>
-      val repository = Maven.repositoryFor(
-        s"http://${c.host}:${c.firstMappedPort}/releases",
-        Some((username = "admin", password = "token")))
-      val coordinates =
-        Maven.Coordinates.parse("com.example:example:scala:sources:0.1.0-SNAPSHOT").get
+    val repo = mavenRepo()
+    val repository = Maven.repositoryFor(
+      s"http://localhost:${repo.getParameters.getPort}/snapshots",
+      Some((username = "admin", password = "token")))
+    val coordinates =
+      Maven.Coordinates.parse("com.example:example:scala:sources:0.1.0-SNAPSHOT").get
 
-      val action = for {
-        maven <- Maven.make(tmp)
-        _ <- maven.deploy(
-          repository,
-          coordinates,
-          Path.apply("project.scala"),
-          verbose = false
-        )
-        versions <- maven.versions(repository, coordinates, verbose = false)
-        resolvedVersion <- maven.resolveVersion(repository, coordinates, verbose = false)
-        latest <- maven.resolveVersion(
-          repository,
-          coordinates.copy(version = Version.Latest),
-          verbose = false)
-        release <- maven.resolveVersion(
-          repository,
-          coordinates.copy(version = Version.Release),
-          verbose = false)
-      } yield (resolvedVersion, latest, release, versions)
-      action.map { (version, latest, release, versions) =>
-        assertNotEquals(version.get, coordinates.version)
-        assertEquals(version, versions.get.snapshot.get.asVersion(coordinates.version))
-        assert(release.isEmpty)
-        assertEquals(version, latest)
-      }
+    val action = for {
+      maven <- Maven.make(tmp)
+      _ <- maven.deploy(
+        repository,
+        coordinates,
+        Path.apply("project.scala"),
+        verbose = false
+      )
+      versions <- maven.versions(repository, coordinates, verbose = false)
+      resolvedVersion <- maven.resolveVersion(repository, coordinates, verbose = false)
+      latest <- maven.resolveVersion(
+        repository,
+        coordinates.copy(version = Version.Latest),
+        verbose = false)
+      release <- maven.resolveVersion(
+        repository,
+        coordinates.copy(version = Version.Release),
+        verbose = false)
+    } yield (resolvedVersion, latest, release, versions)
+    action.map { (version, latest, release, versions) =>
+      assertNotEquals(version.get, coordinates.version)
+      assertEquals(version, versions.get.snapshot.get.asVersion(coordinates.version))
+      assert(release.isEmpty)
+      assertEquals(version, latest)
     }
   }
+}
+
+object IntegrationTest {
+  def makeRepo(tempDir: Path): IO[Reposilite] = nextAvailablePort
+    .use(IO.pure)
+    .flatMap(port =>
+      IO.delay {
+        val params = new ReposiliteParameters()
+        params.setPort(port)
+        params.setWorkingDirectory(tempDir.toNioPath)
+        params.setPluginDirectory((tempDir / "plugins").toNioPath)
+        params.setUsageHelpRequested(false)
+        params.setLevel("WARN")
+        params.setTestEnv(true)
+        params.setLocalConfigurationPath((tempDir / "local").toNioPath)
+        params.setTokens(
+          java.util.List.of(new CreateAccessTokenRequest(
+            AccessTokenType.TEMPORARY,
+            "admin",
+            SecretType.RAW,
+            "token",
+            java.util.Set.of(AccessTokenPermission.MANAGER),
+            java.util.Set.of(),
+            Instant.now().plus(5, ChronoUnit.HOURS),
+            "admin token"
+          )))
+        val repo = ReposiliteFactory.INSTANCE.createReposilite(params)
+        repo.launch().fold(IO.pure, IO.raiseError)
+      }.flatten)
+
+  def nextAvailablePort = Resource
+    .make {
+      IO.blocking(new ServerSocket(0)).map(s => (s, s.getLocalPort))
+    }((socket, _) => IO.blocking(socket.close()))
+    .map(_._2)
 }
